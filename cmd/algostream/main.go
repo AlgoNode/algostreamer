@@ -13,6 +13,7 @@ import (
 )
 
 var cfgFile = flag.String("f", "config.json", "config file")
+var firstRound = flag.Int64("r", -1, "first round to start [-1 = latest]")
 
 // ConfigFilename is the name of algoh's config file
 const ConfigFilename = "host-config.json"
@@ -59,8 +60,26 @@ func main() {
 		return
 	}
 	fmt.Printf("algod last round: %d\n", nodeStatus.LastRound)
+	var nextRound uint64 = 0
+	if *firstRound < 0 {
+		nextRound = nodeStatus.LastRound
+	} else {
+		nextRound = uint64(*firstRound)
+	}
 
 	for {
+
+		for ; nextRound <= nodeStatus.LastRound; nextRound++ {
+			bctx, cancel := context.WithTimeout(context.Background(), time.Duration(15)*time.Second)
+			block, err := algodClient.Block(nextRound).Do(bctx)
+			cancel()
+			if err != nil {
+				fmt.Printf("error getting algod status: %s\n", err)
+				time.Sleep(time.Duration(1000) * time.Millisecond)
+				continue
+			}
+			fmt.Printf("got block %d\n", block.Round)
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(15)*time.Second)
 		newStatus, err := algodClient.StatusAfterBlock(nodeStatus.LastRound).Do(ctx)
@@ -72,15 +91,5 @@ func main() {
 		}
 		nodeStatus = newStatus
 		fmt.Printf("algod last round: %d, lag: %s\n", nodeStatus.LastRound, time.Duration(nodeStatus.TimeSinceLastRound)*time.Nanosecond)
-
-		bctx, cancel := context.WithTimeout(context.Background(), time.Duration(15)*time.Second)
-		block, err := algodClient.Block(nodeStatus.LastRound).Do(bctx)
-		cancel()
-		if err != nil {
-			fmt.Printf("error getting algod status: %s\n", err)
-			time.Sleep(time.Duration(1000) * time.Millisecond)
-			continue
-		}
-		fmt.Printf("%v\n", block)
 	}
 }
