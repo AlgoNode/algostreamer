@@ -1,4 +1,13 @@
 {
-  "algod_address" : "http://127.0.0.1:8180",
-  "algod_token": ""
+  "algod" : {
+    "address" : "http://127.0.0.1:8080",
+    "token" : "...",
+    "queue" : 100
+  },
+  "redis": {
+    "addr": "localhost",
+    "user": "",
+    "pass": "",
+    "db": 10
+  }
 }

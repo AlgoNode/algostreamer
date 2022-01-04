@@ -8,8 +8,10 @@ github.com/algorand/go-codec v1.1.7/go.mod h1:pVLQYhIVCsx9D3iy4W4Qqi0SKhx6IVhMwO
 github.com/algorand/go-codec/codec v0.0.0-20190507210007-269d70b6135d/go.mod h1:qm6LyXvDa1+uZJxaVg8X+OEjBqt/zDinDa2EohtTDxU=
 github.com/algorand/go-codec/codec v1.1.7 h1:EFOyWf5duxbh2ru+AW1YDgmZ+MRVgqklELSqTArgp3M=
 github.com/algorand/go-codec/codec v1.1.7/go.mod h1:xahKG+YDWbJCG+5M1Qkh1X+Qec4IlDVfWMeRTWYABz4=
+github.com/algorand/go-deadlock v0.2.1 h1:TQPQwWAB133bS5uwHpmrgH5hCMyZK5hnUW26aqWMvq4=
 github.com/algorand/go-deadlock v0.2.1/go.mod h1:HgdF2cwtBIBCL7qmUaozuG/UIZFR6PLpSMR58pvWiXE=
 github.com/algorand/graphtrace v0.0.0-20201117160756-e524ed1a6f64/go.mod h1:qFtQmC+kmsfnLfS9j3xgKtzsWyozemL5ek1R4dWZa5c=
+github.com/algorand/msgp v1.1.48 h1:5P+gVmTnk0m37r+rA3ZsFZW219ZqmCLulW5f8Z+3nx8=
 github.com/algorand/msgp v1.1.48/go.mod h1:LtOntbYiCHj/Sl/Sqxtf8CZOrDt2a8Dv3tLaS6mcnUE=
 github.com/algorand/oapi-codegen v1.3.5-algorand5/go.mod h1:/k0Ywn0lnt92uBMyE+yiRf/Wo3/chxHHsAfenD09EbY=
 github.com/algorand/websocket v1.4.4/go.mod h1:0nFSn+xppw/GZS9hgWPS3b8/4FcA3Pj7XQxm+wqHGx8=
@@ -105,6 +107,7 @@ github.com/onsi/ginkgo v1.16.4/go.mod h1:dX+/inL/fNMqNlz0e9LfyB9TswhZpCVdJM/Z6Vv
 github.com/onsi/gomega v1.7.1/go.mod h1:XdKZgCCFLUoM/7CFJVPcG8C1xQ1AJ0vpAezJrB7JYyY=
 github.com/onsi/gomega v1.10.1/go.mod h1:iN09h71vgCQne3DLsj+A5owkum+a2tYe+TOCB1ybHNo=
 github.com/onsi/gomega v1.16.0/go.mod h1:HnhC7FXeEQY45zxNK3PPoIUhzk/80Xly9PcubAlGdZY=
+github.com/petermattis/goid v0.0.0-20180202154549-b0b1615b78e5 h1:q2e307iGHPdTGp0hoxKjt1H5pDo6utceo3dQVK3I5XQ=
 github.com/petermattis/goid v0.0.0-20180202154549-b0b1615b78e5/go.mod h1:jvVRKCrJTQWu0XVbaOlby/2lO20uSCHEMzzplHXte1o=
 github.com/philhofer/fwd v1.0.0/go.mod h1:gk3iGcWd9+svBvR0sR+KPcfE+RNWozjowpeBVG3ZVNU=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
@@ -123,6 +126,7 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/stretchr/testify v1.4.0/go.mod h1:j7eGeouHqKxXV5pUuKE4zz7dFj8WfuZ+81PSLYec5m4=
 github.com/stretchr/testify v1.5.1/go.mod h1:5W2xD1RspED5o8YsWQXVCued0rvSQ+mT+I5cxcmMvtA=
 github.com/stretchr/testify v1.6.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
+github.com/stretchr/testify v1.7.0 h1:nwc3DEeHmmLAfoZucVR881uASk0Mfjw8xYJ99tb5CcY=
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/ttacon/chalk v0.0.0-20160626202418-22c06c80ed31/go.mod h1:onvgF043R+lC5RZ8IT9rBXDaEDnpnw/Cl+HFiw+v/7Q=
 github.com/valyala/bytebufferpool v1.0.0/go.mod h1:6bBcMArwyJ5K/AmCkWv1jt77kVWyCJ6HpOuEn7z0Csc=
@@ -217,4 +221,5 @@ gopkg.in/yaml.v2 v2.2.8/go.mod h1:hI93XBmqTisBFMUTm0b8Fm+jr3Dg1NNxqwp+5A1VGuI=
 gopkg.in/yaml.v2 v2.3.0/go.mod h1:hI93XBmqTisBFMUTm0b8Fm+jr3Dg1NNxqwp+5A1VGuI=
 gopkg.in/yaml.v2 v2.4.0/go.mod h1:RDklbk79AGWmwhnvt/jBztapEOGDOx6ZbXqjP6csGnQ=
 gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776 h1:tQIYjPdBoyREyB9XMu+nnTclpTYkz2zFM+lzLJFO4gQ=
 gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=

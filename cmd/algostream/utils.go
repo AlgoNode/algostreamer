@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 )
 
@@ -21,7 +22,7 @@ func Backoff(ctx context.Context, fn eternalFn, timeout time.Duration, wait time
 			return nil
 		}
 		cancel()
-		fmt.Errorf("Error: %s", err)
+		fmt.Fprintf(os.Stderr, "Error: %s", err)
 
 		//keep an eye on cancellation while backing off
 		if wait > 0 {

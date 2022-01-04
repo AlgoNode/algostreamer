@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/algorand/go-algorand-sdk/types"
+	"github.com/algorand/go-algorand/protocol"
+	"github.com/algorand/go-codec/codec"
 	"github.com/go-redis/redis/v8"
 )
 
@@ -17,7 +18,8 @@ type RedisConfig struct {
 }
 
 func redisPusher(ctx context.Context, cfg *SteramerConfig, blocks chan *types.Block) error {
-	redis.NewClient(&redis.Options{
+
+	rc := redis.NewClient(&redis.Options{
 		Addr:       cfg.Redis.Addr,
 		Password:   cfg.Redis.Password,
 		Username:   cfg.Redis.Username,
@@ -25,12 +27,23 @@ func redisPusher(ctx context.Context, cfg *SteramerConfig, blocks chan *types.Bl
 		MaxRetries: 0,
 	})
 
+	if cfg.stdout {
+		rc = nil
+	}
+
 	go func() {
 		for {
 			select {
 			case b := <-blocks:
-				jb, _ := json.Marshal(b)
-				fmt.Println(jb)
+				var output []byte
+				enc := codec.NewEncoderBytes(&output, protocol.JSONStrictHandle)
+				err := enc.Encode(b)
+				if err != nil {
+					continue
+				}
+				if rc == nil {
+					fmt.Println(string(output))
+				}
 			case <-ctx.Done():
 			}
 

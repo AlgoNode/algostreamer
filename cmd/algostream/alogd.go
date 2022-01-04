@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/algorand/go-algorand-sdk/client/v2/algod"
@@ -21,9 +22,10 @@ func algodStream(ctx context.Context, cfg *SteramerConfig) (chan *types.Block, e
 	// Create an algod client
 	algodClient, err := algod.MakeClient(cfg.Algod.Address, cfg.Algod.Token)
 	if err != nil {
-		fmt.Printf("failed to make algod client: %s\n", err)
+		fmt.Fprintf(os.Stderr, "failed to make algod client: %s\n", err)
 		return nil, err
 	}
+	fmt.Fprintf(os.Stderr, "Algo client: %s\n", cfg.Algod.Address)
 
 	qDepth := cfg.Algod.Queue
 	if qDepth < 1 {
@@ -41,7 +43,7 @@ func algodStream(ctx context.Context, cfg *SteramerConfig) (chan *types.Block, e
 		return nil
 	}, time.Second, time.Millisecond*100, time.Second*5)
 
-	fmt.Printf("algod last round: %d\n", nodeStatus.LastRound)
+	fmt.Fprintf(os.Stderr, "algod last round: %d\n", nodeStatus.LastRound)
 	var nextRound uint64 = 0
 	if *firstRound < 0 {
 		nextRound = nodeStatus.LastRound
@@ -58,7 +60,7 @@ func algodStream(ctx context.Context, cfg *SteramerConfig) (chan *types.Block, e
 					if err != nil {
 						return err
 					}
-					fmt.Printf("got block %d, queue %d\n", block.Round, len(bchan))
+					fmt.Fprintf(os.Stderr, "got block %d, queue %d\n", block.Round, len(bchan))
 					select {
 					case bchan <- &block:
 					case <-ctx.Done():
@@ -76,7 +78,7 @@ func algodStream(ctx context.Context, cfg *SteramerConfig) (chan *types.Block, e
 					return err
 				}
 				nodeStatus = &newStatus
-				fmt.Printf("algod last round: %d, lag: %s\n", nodeStatus.LastRound, time.Duration(nodeStatus.TimeSinceLastRound)*time.Nanosecond)
+				fmt.Fprintf(os.Stderr, "algod last round: %d, lag: %s\n", nodeStatus.LastRound, time.Duration(nodeStatus.TimeSinceLastRound)*time.Nanosecond)
 				return nil
 			}, time.Second*10, time.Millisecond*100, time.Second*10)
 			if err != nil {
