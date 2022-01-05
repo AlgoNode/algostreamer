@@ -12,7 +12,7 @@ Go to https://algonode.cloud for more.
 ## Install 
 
 ```Shell
-go get https://github.com/algonode/algostreamer
+go get github.com/algonode/algostreamer
 ```
 
 ## Config
