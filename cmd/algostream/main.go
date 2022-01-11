@@ -21,12 +21,16 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/algonode/algostreamer/internal/algod"
+	"github.com/algonode/algostreamer/internal/config"
+	"github.com/algonode/algostreamer/internal/rdb"
 )
 
 func main() {
 
 	//load config
-	cfg, err := loadConfig()
+	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading config: %s", err)
 		return
@@ -47,14 +51,14 @@ func main() {
 	}
 
 	//spawn a block stream fetcher that never fails
-	blocks, err := algodStream(ctx, &cfg)
+	blocks, status, err := algod.AlgodStream(ctx, cfg.Algod)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting algod stream: %s", err)
 		return
 	}
 
 	//spawn a redis pusher
-	err = redisPusher(ctx, &cfg, blocks)
+	err = rdb.RedisPusher(ctx, cfg.Redis, blocks, status)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error setting up redis: %s", err)
 		return

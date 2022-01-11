@@ -1,0 +1,15 @@
+{
+  "algod" : {
+    "address" : "https://mainnet-api.algonode.cloud",
+    "token" : "notneeded",
+    "queue" : 10
+  },
+  "redis": {    
+    "addr": "localhost",
+    "user": "",
+    "pass": "",
+    "db": 10,
+    "mykey": "mynodename"
+
+  }
+}

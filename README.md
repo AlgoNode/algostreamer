@@ -3,6 +3,7 @@
 ## About algostreamer
 
 Small utility to stream past and/or current Algorand node JSON blocks to Redis or stdout.
+Blocks and TXn can be filtered and transformed and redirected using REGO - an Open Policy Agent language.
 
 ## About AlgoNode
 
@@ -41,15 +42,13 @@ config.json
 
 Start streaming from the current block
 ```Shell
-./algostreamer -f config.json -s 2>>stream.log
+./algostreamer -f config.json 
 ```
 
 Start streming from the block no 18000000 and then continue with current blocks
 ```Shell
-./algostreamer -r 18000000 -f config.json -s 2>>stream.log
+./algostreamer -r 18000000 -f config.json 
 ```
-
-WARN: Redis is not yet implemented
 
 ## License
 

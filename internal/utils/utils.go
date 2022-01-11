@@ -13,13 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with algostreamer.  If not, see <https://www.gnu.org/licenses/>.
 
-package main
+package utils
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/tidwall/jsonc"
 )
 
 type eternalFn func(ctx context.Context) error
@@ -53,4 +56,12 @@ func Backoff(ctx context.Context, fn eternalFn, timeout time.Duration, wait time
 			}
 		}
 	}
+}
+
+func LoadJSONCFromFile(filename string, object interface{}) (err error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(jsonc.ToJSON(data), &object)
 }
