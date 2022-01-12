@@ -17,13 +17,9 @@ package rego
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
-
-	"github.com/open-policy-agent/opa/storage/disk"
 
 	"github.com/open-policy-agent/opa/ast"
 	"github.com/open-policy-agent/opa/rego"
@@ -31,7 +27,6 @@ import (
 	"github.com/open-policy-agent/opa/storage/inmem"
 	"github.com/open-policy-agent/opa/topdown"
 	"github.com/open-policy-agent/opa/types"
-	"github.com/open-policy-agent/opa/util"
 )
 
 type RegoRulesMap struct {
@@ -40,392 +35,54 @@ type RegoRulesMap struct {
 	Tx     string `json:"tx"`
 }
 
+type RegoRulesCompilers struct {
+	Status *ast.Compiler
+	Block  *ast.Compiler
+	Tx     *ast.Compiler
+}
+
 type OpaConfig struct {
 	MyID  string       `json:"myid"`
 	Rules RegoRulesMap `json:"rules"`
+	c     RegoRulesCompilers
 }
 
-// Copyright 2017 The OPA Authors.  All rights reserved.
-// Use of this source code is governed by an Apache2
-// license that can be found in the LICENSE file.
-
-func ExampleRego_Eval_simple() {
-
-	ctx := context.Background()
-
-	// Create very simple query that binds a single variable.
-	rego := rego.New(rego.Query("x = 1"))
-
-	// Run evaluation.
-	rs, err := rego.Eval(ctx)
-
-	// Inspect results.
-	fmt.Println("len:", len(rs))
-	fmt.Println("bindings:", rs[0].Bindings)
-	fmt.Println("err:", err)
-
-	// Output:
-	//
-	// len: 1
-	// bindings: map[x:1]
-	// err: <nil>
-}
-
-func ExampleRego_Eval_input() {
-
-	ctx := context.Background()
-
-	// Raw input data that will be used in evaluation.
-	raw := `{"users": [{"id": "bob"}, {"id": "alice"}]}`
-	d := json.NewDecoder(bytes.NewBufferString(raw))
-
-	// Numeric values must be represented using json.Number.
-	d.UseNumber()
-
-	var input interface{}
-
-	if err := d.Decode(&input); err != nil {
-		panic(err)
+func CompileCfg(cfg *OpaConfig) error {
+	if err := compileRegoFile(cfg.Rules.Status, "status", &cfg.c.Status); err != nil {
+		return err
 	}
+	if err := compileRegoFile(cfg.Rules.Block, "block", &cfg.c.Block); err != nil {
+		return err
+	}
+	if err := compileRegoFile(cfg.Rules.Tx, "tx", &cfg.c.Tx); err != nil {
+		return err
+	}
+	if cfg.c.Status == nil && cfg.c.Block == nil && cfg.c.Tx == nil {
+		return fmt.Errorf("define OPA rule file for at least one event category (status|block|tx)")
+	}
+	return nil
+}
 
-	// Create a simple query over the input.
-	rego := rego.New(
-		rego.Query("input.users[idx].id = user_id"),
-		rego.Input(input))
-
-	//Run evaluation.
-	rs, err := rego.Eval(ctx)
-
+func compileRegoFile(file string, module string, compiler **ast.Compiler) error {
+	if file == "" {
+		return nil
+	}
+	data, err := os.ReadFile(file)
 	if err != nil {
-		// Handle error.
+		return err
 	}
 
-	// Inspect results.
-	fmt.Println("len:", len(rs))
-	fmt.Println("bindings.idx:", rs[1].Bindings["idx"])
-	fmt.Println("bindings.user_id:", rs[1].Bindings["user_id"])
-
-	// Output:
-	//
-	// len: 2
-	// bindings.idx: 1
-	// bindings.user_id: alice
-}
-
-func ExampleRego_Eval_multipleBindings() {
-
-	ctx := context.Background()
-
-	// Create query that produces multiple bindings for variable.
-	rego := rego.New(
-		rego.Query(`a = ["ex", "am", "ple"]; x = a[_]; not p[x]`),
-		rego.Package(`example`),
-		rego.Module("example.rego", `package example
-
-		p["am"] { true }
-		`),
-	)
-
-	// Run evaluation.
-	rs, err := rego.Eval(ctx)
-
-	// Inspect results.
-	fmt.Println("len:", len(rs))
-	fmt.Println("err:", err)
-	for i := range rs {
-		fmt.Printf("bindings[\"x\"]: %v (i=%d)\n", rs[i].Bindings["x"], i)
-	}
-
-	// Output:
-	//
-	// len: 2
-	// err: <nil>
-	// bindings["x"]: ex (i=0)
-	// bindings["x"]: ple (i=1)
-}
-
-func ExampleRego_Eval_singleDocument() {
-
-	ctx := context.Background()
-
-	// Create query that produces a single document.
-	rego := rego.New(
-		rego.Query("data.example.p"),
-		rego.Module("example.rego",
-			`package example
-
-p = ["hello", "world"] { true }`,
-		))
-
-	// Run evaluation.
-	rs, err := rego.Eval(ctx)
-
-	// Inspect result.
-	fmt.Println("value:", rs[0].Expressions[0].Value)
-	fmt.Println("err:", err)
-
-	// Output:
-	//
-	// value: [hello world]
-	// err: <nil>
-}
-
-func ExampleRego_Eval_allowed() {
-
-	ctx := context.Background()
-
-	// Create query that returns a single boolean value.
-	rego := rego.New(
-		rego.Query("data.authz.allow"),
-		rego.Module("example.rego",
-			`package authz
-
-default allow = false
-allow {
-	input.open == "sesame"
-}`,
-		),
-		rego.Input(map[string]interface{}{"open": "sesame"}),
-	)
-
-	// Run evaluation.
-	rs, err := rego.Eval(ctx)
-	if err != nil {
-		panic(err)
-	}
-
-	// Inspect result.
-	fmt.Println("allowed:", rs.Allowed())
-
-	// Output:
-	//
-	//	allowed: true
-}
-
-func ExampleRego_Eval_multipleDocuments() {
-
-	ctx := context.Background()
-
-	// Create query that produces multiple documents.
-	rego := rego.New(
-		rego.Query("data.example.p[x]"),
-		rego.Module("example.rego",
-			`package example
-
-p = {"hello": "alice", "goodbye": "bob"} { true }`,
-		))
-
-	// Run evaluation.
-	rs, err := rego.Eval(ctx)
-
-	// Inspect results.
-	fmt.Println("len:", len(rs))
-	fmt.Println("err:", err)
-	for i := range rs {
-		fmt.Printf("bindings[\"x\"]: %v (i=%d)\n", rs[i].Bindings["x"], i)
-		fmt.Printf("value: %v (i=%d)\n", rs[i].Expressions[0].Value, i)
-	}
-
-	// Output:
-	//
-	// len: 2
-	// err: <nil>
-	// bindings["x"]: goodbye (i=0)
-	// value: bob (i=0)
-	// bindings["x"]: hello (i=1)
-	// value: alice (i=1)
-}
-
-func ExampleRego_Eval_compiler() {
-
-	ctx := context.Background()
-
-	// Define a simple policy.
-	module := `
-		package example
-
-		default allow = false
-
-		allow {
-			input.identity = "admin"
-		}
-
-		allow {
-			input.method = "GET"
-		}
-	`
-
-	// Compile the module. The keys are used as identifiers in error messages.
-	compiler, err := ast.CompileModules(map[string]string{
-		"example.rego": module,
+	c, err := ast.CompileModules(map[string]string{
+		module: string(data),
 	})
 
-	// Create a new query that uses the compiled policy from above.
-	rego := rego.New(
-		rego.Query("data.example.allow"),
-		rego.Compiler(compiler),
-		rego.Input(
-			map[string]interface{}{
-				"identity": "bob",
-				"method":   "GET",
-			},
-		),
-	)
-
-	// Run evaluation.
-	rs, err := rego.Eval(ctx)
-
 	if err != nil {
-		// Handle error.
+		return err
 	}
 
-	// Inspect results.
-	fmt.Println("len:", len(rs))
-	fmt.Println("value:", rs[0].Expressions[0].Value)
-	fmt.Println("allowed:", rs.Allowed()) // helper method
+	*compiler = c
+	return nil
 
-	// Output:
-	//
-	// len: 1
-	// value: true
-	// allowed: true
-}
-
-func ExampleRego_Eval_storage() {
-
-	ctx := context.Background()
-
-	data := `{
-        "example": {
-            "users": [
-                {
-                    "name": "alice",
-                    "likes": ["dogs", "clouds"]
-                },
-                {
-                    "name": "bob",
-                    "likes": ["pizza", "cats"]
-                }
-            ]
-        }
-    }`
-
-	var json map[string]interface{}
-
-	err := util.UnmarshalJSON([]byte(data), &json)
-	if err != nil {
-		// Handle error.
-	}
-
-	// Manually create the storage layer. inmem.NewFromObject returns an
-	// in-memory store containing the supplied data.
-	store := inmem.NewFromObject(json)
-
-	// Create new query that returns the value
-	rego := rego.New(
-		rego.Query("data.example.users[0].likes"),
-		rego.Store(store))
-
-	// Run evaluation.
-	rs, err := rego.Eval(ctx)
-	if err != nil {
-		// Handle error.
-	}
-
-	// Inspect the result.
-	fmt.Println("value:", rs[0].Expressions[0].Value)
-
-	// Output:
-	//
-	// value: [dogs clouds]
-}
-
-func ExampleRego_Eval_persistent_storage() {
-
-	ctx := context.Background()
-
-	data := `{
-        "example": {
-            "users": {
-				"alice": {
-					"likes": ["dogs", "clouds"]
-				},
-				"bob": {
-					"likes": ["pizza", "cats"]
-				}
-			}
-        }
-    }`
-
-	var json map[string]interface{}
-
-	err := util.UnmarshalJSON([]byte(data), &json)
-	if err != nil {
-		// Handle error.
-	}
-
-	// Manually create a persistent storage-layer in a temporary directory.
-	rootDir, err := ioutil.TempDir("", "rego_example")
-	if err != nil {
-		panic(err)
-	}
-
-	defer os.RemoveAll(rootDir)
-
-	// Configure the store to partition data at `/example/users` so that each
-	// user's data is stored on a different row. Assuming the policy only reads
-	// data for a single user to process the policy query, OPA can avoid loading
-	// _all_ user data into memory this way.
-	store, err := disk.New(ctx, disk.Options{
-		Dir:        rootDir,
-		Partitions: []storage.Path{{"example", "user"}},
-	})
-	if err != nil {
-		// Handle error.
-	}
-
-	err = storage.WriteOne(ctx, store, storage.AddOp, storage.Path{}, json)
-	if err != nil {
-		// Handle error
-	}
-
-	// Run a query that returns the value
-	rs, err := rego.New(
-		rego.Query(`data.example.users["alice"].likes`),
-		rego.Store(store)).Eval(ctx)
-	if err != nil {
-		// Handle error.
-	}
-
-	// Inspect the result.
-	fmt.Println("value:", rs[0].Expressions[0].Value)
-
-	// Re-open the store in the same directory.
-	store.Close(ctx)
-
-	store2, err := disk.New(ctx, disk.Options{
-		Dir:        rootDir,
-		Partitions: []storage.Path{{"example", "user"}},
-	})
-	if err != nil {
-		// Handle error.
-	}
-
-	// Run the same query with a new store.
-	rs, err = rego.New(
-		rego.Query(`data.example.users["alice"].likes`),
-		rego.Store(store2)).Eval(ctx)
-	if err != nil {
-		// Handle error.
-	}
-
-	// Inspect the result and observe the same result.
-	fmt.Println("value:", rs[0].Expressions[0].Value)
-
-	// Output:
-	//
-	// value: [dogs clouds]
-	// value: [dogs clouds]
 }
 
 func ExampleRego_Eval_transactions() {

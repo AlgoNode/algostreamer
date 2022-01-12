@@ -51,14 +51,14 @@ func main() {
 	}
 
 	//spawn a block stream fetcher that never fails
-	blocks, status, err := algod.AlgodStream(ctx, cfg.Algod)
+	blocks, status, err := algod.AlgoStreamer(ctx, cfg.Algod)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting algod stream: %s", err)
 		return
 	}
 
 	//spawn a redis pusher
-	err = rdb.RedisPusher(ctx, cfg.Redis, blocks, status)
+	err = rdb.RedisPusher(ctx, cfg.Sinks.Redis, blocks, status)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error setting up redis: %s", err)
 		return

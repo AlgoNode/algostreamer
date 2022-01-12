@@ -17,6 +17,7 @@ package config
 
 import (
 	"flag"
+	"fmt"
 
 	"github.com/algonode/algostreamer/internal/algod"
 	"github.com/algonode/algostreamer/internal/rdb"
@@ -26,57 +27,35 @@ import (
 
 var cfgFile = flag.String("f", "config.jsonc", "config file")
 var firstRound = flag.Int64("r", -1, "first round to start [-1 = latest]")
-var stdoutFlag = flag.Bool("s", false, "dump blocks to stdout instead of redis")
+var lastRound = flag.Int64("l", -1, "last round to read [-1 = no limit]")
 
 type SinksCfg struct {
 	Redis *rdb.RedisConfig `json:"redis"`
 }
 
-// HostConfig is algoh's configuration structure
 type SteramerConfig struct {
-	Algod  []*algod.AlgoConfig `json:"algod"`
-	Sinks  SinksCfg            `json:"sinks"`
-	Rego   *rego.OpaConfig     `json:"opa"`
+	Algod  *algod.AlgoConfig `json:"algod"`
+	Sinks  SinksCfg          `json:"sinks"`
+	Rego   *rego.OpaConfig   `json:"opa"`
 	stdout bool
 }
 
-var defaultConfig = SteramerConfig{
-	Algod: []*algod.AlgoConfig{
-		{
-			Address: "http://localhost:8081",
-			Queue:   100,
-		},
-	},
-	Sinks: SinksCfg{
-		Redis: &rdb.RedisConfig{
-			Addr:     "127.0.0.1",
-			Username: "",
-			Password: "",
-			DB:       0,
-		},
-	},
-	Rego: &rego.OpaConfig{
-		MyID: "localhost",
-		Rules: rego.RegoRulesMap{
-			Status: "",
-			Block:  "",
-			Tx:     "",
-		},
-	},
-
-	stdout: false,
-}
+var defaultConfig = SteramerConfig{}
 
 // loadConfig loads the configuration from the specified file, merging into the default configuration.
 func LoadConfig() (cfg SteramerConfig, err error) {
 	flag.Parse()
 	cfg = defaultConfig
 	err = utils.LoadJSONCFromFile(*cfgFile, &cfg)
-	cfg.stdout = *stdoutFlag
-	//not tracking sync position per sink yet
-	//start at the same block for all sinks
-	for i := range cfg.Algod {
-		cfg.Algod[i].FRound = *firstRound
+
+	if cfg.Algod == nil {
+		return cfg, fmt.Errorf("Missing algod config")
 	}
+	if len(cfg.Algod.ANodes) == 0 {
+		return cfg, fmt.Errorf("Configure at least one node")
+	}
+	cfg.Algod.FRound = *firstRound
+	cfg.Algod.LRound = *lastRound
+
 	return cfg, err
 }

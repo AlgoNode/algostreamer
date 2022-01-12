@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/algonode/algostreamer/internal/algod"
-	"github.com/algorand/go-algorand-sdk/types"
 	"github.com/algorand/go-algorand/protocol"
 	"github.com/algorand/go-codec/codec"
 	"github.com/go-redis/redis/v8"
@@ -38,7 +37,7 @@ type RedisConfig struct {
 	DB       int    `json:"db"`
 }
 
-func handleBlockStdOut(b *types.Block) error {
+func handleBlockStdOut(b *algod.BlockWrap) error {
 	var output []byte
 	enc := codec.NewEncoderBytes(&output, protocol.JSONStrictHandle)
 	err := enc.Encode(b)
@@ -50,22 +49,23 @@ func handleBlockStdOut(b *types.Block) error {
 }
 
 func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Client, cfg *RedisConfig) error {
-	err := rc.HSet(ctx, PFX_Node+cfg.MyKey,
-		"round", uint64(status.LastRound),
-		"lag", status.LagMs).Err()
-	if err != nil {
-		fmt.Printf("Err: %s", err)
-	} else {
-		fmt.Printf("SET OK\n")
-	}
-	return err
-}
-
-func handleBlockRedis(ctx context.Context, b *types.Block, rc *redis.Client, cfg *RedisConfig) error {
+	// err := rc.HSet(ctx, PFX_Node+cfg.MyKey,
+	// 	"round", uint64(status.LastRound),
+	// 	"lag", status.LagMs).Err()
+	// if err != nil {
+	// 	fmt.Printf("Err: %s", err)
+	// } else {
+	fmt.Printf("SET OK %d \n", status.LastRound)
+	// }
 	return nil
 }
 
-func RedisPusher(ctx context.Context, cfg *RedisConfig, blocks chan *types.Block, status chan *algod.Status) error {
+func handleBlockRedis(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, cfg *RedisConfig) error {
+	fmt.Printf("SET OK %d from %s \n", uint64(b.Block.Round), b.Src)
+	return nil
+}
+
+func RedisPusher(ctx context.Context, cfg *RedisConfig, blocks chan *algod.BlockWrap, status chan *algod.Status) error {
 
 	var rc *redis.Client = nil
 

@@ -18,6 +18,7 @@ package algod
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"time"
 
@@ -27,11 +28,17 @@ import (
 	"github.com/algorand/go-algorand-sdk/types"
 )
 
-type AlgoConfig struct {
+type AlgoNodeConfig struct {
 	Address string `json:"address"`
 	Token   string `json:"token"`
-	Queue   int    `json:"queue"`
-	FRound  int64  `json:"-"`
+	Id      string `json:"id"`
+}
+
+type AlgoConfig struct {
+	ANodes []*AlgoNodeConfig `json:"nodes"`
+	Queue  int               `json:"queue"`
+	FRound int64             `json:"first"`
+	LRound int64             `json:"last"`
 }
 
 type Status struct {
@@ -39,22 +46,56 @@ type Status struct {
 	LagMs     int64
 }
 
-func AlgodStream(ctx context.Context, cfg *AlgoConfig) (chan *types.Block, chan *Status, error) {
+type BlockWrap struct {
+	Block *types.Block
+	Src   string
+	Ts    time.Time
+}
 
+func AlgoStreamer(ctx context.Context, acfg *AlgoConfig) (chan *BlockWrap, chan *Status, error) {
+	qDepth := acfg.Queue
+	if qDepth < 1 {
+		qDepth = 100
+	}
+	bestbchan := make(chan *BlockWrap, qDepth)
+	bchan := make(chan *BlockWrap, qDepth)
+	schan := make(chan *Status, qDepth)
+
+	for idx := range acfg.ANodes {
+		if err := algodStreamNode(ctx, acfg, idx, bchan, schan, acfg.FRound, acfg.LRound); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	// filter duplicates, forward only first newwer block.
+	go func() {
+		var maxBlock uint64 = math.MaxUint64
+
+		for {
+			select {
+			case bw := <-bchan:
+				if uint64(bw.Block.Round) > maxBlock || maxBlock == math.MaxUint64 {
+					bestbchan <- bw
+					maxBlock = uint64(bw.Block.Round)
+				}
+			case <-ctx.Done():
+			}
+		}
+	}()
+
+	return bestbchan, schan, nil
+}
+
+func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan *BlockWrap, schan chan *Status, start int64, stop int64) error {
+
+	cfg := acfg.ANodes[idx]
 	// Create an algod client
 	algodClient, err := algod.MakeClient(cfg.Address, cfg.Token)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to make algod client: %s\n", err)
-		return nil, nil, err
+		return err
 	}
 	fmt.Fprintf(os.Stderr, "Algo client: %s\n", cfg.Address)
-
-	qDepth := cfg.Queue
-	if qDepth < 1 {
-		qDepth = 100
-	}
-	bchan := make(chan *types.Block, qDepth)
-	schan := make(chan *Status, qDepth)
 
 	var nodeStatus *models.NodeStatus = nil
 	utils.Backoff(ctx, func(actx context.Context) error {
@@ -67,17 +108,18 @@ func AlgodStream(ctx context.Context, cfg *AlgoConfig) (chan *types.Block, chan 
 	}, time.Second, time.Millisecond*100, time.Second*5)
 	schan <- &Status{LastRound: uint64(nodeStatus.LastRound), LagMs: int64(nodeStatus.TimeSinceLastRound) / int64(time.Millisecond)}
 
-	fmt.Fprintf(os.Stderr, "algod last round: %d\n", nodeStatus.LastRound)
 	var nextRound uint64 = 0
-	if cfg.FRound < 0 {
+	if start < 0 {
 		nextRound = nodeStatus.LastRound
+		fmt.Fprintf(os.Stderr, "Starting from last round : %d\n", nodeStatus.LastRound)
 	} else {
-		nextRound = uint64(cfg.FRound)
+		nextRound = uint64(start)
+		fmt.Fprintf(os.Stderr, "Starting from fixed round : %d\n", nextRound)
 	}
 
 	//Loop until Algoverse gets canelled
 	go func() {
-		for {
+		for stop < 0 || nextRound < uint64(stop) {
 			for ; nextRound <= nodeStatus.LastRound; nextRound++ {
 				err := utils.Backoff(ctx, func(actx context.Context) error {
 					block, err := algodClient.Block(nextRound).Do(ctx)
@@ -86,7 +128,11 @@ func AlgodStream(ctx context.Context, cfg *AlgoConfig) (chan *types.Block, chan 
 					}
 					fmt.Fprintf(os.Stderr, "got block %d, queue %d\n", block.Round, len(bchan))
 					select {
-					case bchan <- &block:
+					case bchan <- &BlockWrap{
+						Block: &block,
+						Ts:    time.Now(),
+						Src:   cfg.Id,
+					}:
 					case <-ctx.Done():
 					}
 					return ctx.Err()
@@ -114,5 +160,5 @@ func AlgodStream(ctx context.Context, cfg *AlgoConfig) (chan *types.Block, chan 
 		}
 	}()
 
-	return bchan, schan, nil
+	return nil
 }
