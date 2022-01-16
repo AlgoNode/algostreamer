@@ -57,12 +57,12 @@ config.jsonc
 
 Start streaming from the current block
 ```Shell
-./algostreamer -f config.jsonc 
+./algostreamer -f config.jsonc -s 2>error.log
 ```
 
 Start streming from the block no 18000000 and then continue with current blocks
 ```Shell
-./algostreamer -r 18000000 -f config.jsonc
+./algostreamer -r 18000000 -f config.jsonc -s 2>error.log
 ```
 
 ## License
