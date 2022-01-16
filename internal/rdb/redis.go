@@ -18,11 +18,13 @@ package rdb
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/algonode/algostreamer/internal/algod"
-	"github.com/algorand/go-algorand/protocol"
-	"github.com/algorand/go-codec/codec"
+	"github.com/algonode/algostreamer/internal/utils"
+
 	"github.com/go-redis/redis/v8"
 )
 
@@ -37,30 +39,75 @@ type RedisConfig struct {
 	DB       int    `json:"db"`
 }
 
-func handleBlockStdOut(b *algod.BlockWrap) error {
-	var output []byte
-	enc := codec.NewEncoderBytes(&output, protocol.JSONStrictHandle)
-	err := enc.Encode(b)
+func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Client, cfg *RedisConfig) error {
+	err := rc.HSet(ctx, "NS:"+status.NodeId,
+		"round", uint64(status.LastRound),
+		"lag", status.LagMs,
+		"lcp", status.LastCP).Err()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "Err: %s", err)
 		return err
 	}
-	fmt.Println(string(output))
-	return nil
-}
-
-func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Client, cfg *RedisConfig) error {
-	// err := rc.HSet(ctx, PFX_Node+cfg.MyKey,
-	// 	"round", uint64(status.LastRound),
-	// 	"lag", status.LagMs).Err()
-	// if err != nil {
-	// 	fmt.Printf("Err: %s", err)
-	// } else {
-	fmt.Printf("SET OK %d \n", status.LastRound)
-	// }
+	//18650000#YVYJHWA4AJS36CTISLIK7ZVYBMLWK3MFTE7UZGK7YBZBJKQISBWQ
+	if status.LastCP != "" {
+		a := strings.Split(status.LastCP, "#")
+		if len(a) > 0 {
+			if err := rc.XAdd(ctx, &redis.XAddArgs{
+				Stream: "lcp",
+				ID:     fmt.Sprintf("%s-0", a[0]),
+				Values: map[string]interface{}{"last": status.LastCP, "time": time.Now()},
+			}).Err(); err != nil {
+				fmt.Fprintf(os.Stderr, "Err: %s", err)
+				return err
+			}
+			rc.XTrimMaxLen(ctx, "lcp", 1000)
+		}
+	}
 	return nil
 }
 
 func handleBlockRedis(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, cfg *RedisConfig) error {
+	// hash := fmt.Sprintf("b:%d", b.Block.Round/10000)
+	// field := strconv.Itoa(int(b.Block.Round % 10000))
+
+	// if err := rc.HSetNX(ctx, hash, field, b.BlockRaw).Err(); err != nil {
+	// 	fmt.Printf("SET ERR %d: %s \n", uint64(b.Block.Round), err)
+	// 	return err
+	// }
+	if err := rc.XAdd(ctx, &redis.XAddArgs{
+		Stream: "xblock-v2",
+		ID:     fmt.Sprintf("%d-0", b.Block.Round),
+		MaxLen: 100000,
+		Approx: true,
+		Values: map[string]interface{}{"msgpack": b.BlockRaw, "round": uint64(b.Block.Round)},
+	}).Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "Err: %s", err)
+	}
+
+	for i, txn := range b.Block.Payset {
+		//I just love how easy is to get txId nowadays ;)
+		_, txId, err := algod.DecodeSignedTxn(b.Block.BlockHeader, txn)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Err: %s", err)
+			continue
+		}
+
+		jTx, err := utils.EncodeJson(txn)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Err: %s", err)
+			continue
+		}
+		if err := rc.XAdd(ctx, &redis.XAddArgs{
+			Stream: "xtx-v2",
+			ID:     fmt.Sprintf("%d-%d", b.Block.Round, i),
+			MaxLen: 1000000,
+			Approx: true,
+			Values: map[string]interface{}{"json": string(jTx), "round": uint64(b.Block.Round), "intra": i, "txid": txId},
+		}).Err(); err != nil {
+			fmt.Fprintf(os.Stderr, "Err: %s", err)
+		}
+	}
+
 	fmt.Printf("SET OK %d from %s \n", uint64(b.Block.Round), b.Src)
 	return nil
 }
@@ -69,15 +116,16 @@ func RedisPusher(ctx context.Context, cfg *RedisConfig, blocks chan *algod.Block
 
 	var rc *redis.Client = nil
 
-	if cfg != nil {
-		rc = redis.NewClient(&redis.Options{
-			Addr:       cfg.Addr,
-			Password:   cfg.Password,
-			Username:   cfg.Username,
-			DB:         cfg.DB,
-			MaxRetries: 0,
-		})
+	if cfg == nil {
+		return fmt.Errorf("Redis config is missing")
 	}
+	rc = redis.NewClient(&redis.Options{
+		Addr:       cfg.Addr,
+		Password:   cfg.Password,
+		Username:   cfg.Username,
+		DB:         cfg.DB,
+		MaxRetries: 0,
+	})
 
 	go func() {
 		for {
@@ -88,10 +136,7 @@ func RedisPusher(ctx context.Context, cfg *RedisConfig, blocks chan *algod.Block
 				}
 			case b := <-blocks:
 				for {
-					if rc == nil {
-						handleBlockStdOut(b)
-						break
-					}
+					//No OPA stuff yet - just populate REDIS streams
 					err := handleBlockRedis(ctx, b, rc, cfg)
 					if err == nil {
 						break

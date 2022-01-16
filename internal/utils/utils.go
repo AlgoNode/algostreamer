@@ -22,6 +22,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/algorand/go-algorand/protocol"
+	"github.com/algorand/go-codec/codec"
 	"github.com/tidwall/jsonc"
 )
 
@@ -40,7 +42,7 @@ func Backoff(ctx context.Context, fn eternalFn, timeout time.Duration, wait time
 			return nil
 		}
 		cancel()
-		fmt.Fprintf(os.Stderr, "Error: %s", err)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 
 		//keep an eye on cancellation while backing off
 		if wait > 0 {
@@ -64,4 +66,15 @@ func LoadJSONCFromFile(filename string, object interface{}) (err error) {
 		return err
 	}
 	return json.Unmarshal(jsonc.ToJSON(data), &object)
+}
+
+func EncodeJson(obj interface{}) ([]byte, error) {
+	var output []byte
+	enc := codec.NewEncoderBytes(&output, protocol.JSONStrictHandle)
+
+	err := enc.Encode(obj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode object: %v", err)
+	}
+	return output, nil
 }

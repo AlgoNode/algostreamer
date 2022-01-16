@@ -42,12 +42,12 @@ config.json
 
 Start streaming from the current block
 ```Shell
-./algostreamer -f config.json 
+./algostreamer -f config.jsonc 
 ```
 
 Start streming from the block no 18000000 and then continue with current blocks
 ```Shell
-./algostreamer -r 18000000 -f config.json 
+./algostreamer -r 18000000 -f config.jsonc
 ```
 
 ## License

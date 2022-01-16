@@ -25,6 +25,7 @@ import (
 	"github.com/algonode/algostreamer/internal/algod"
 	"github.com/algonode/algostreamer/internal/config"
 	"github.com/algonode/algostreamer/internal/rdb"
+	"github.com/algonode/algostreamer/internal/simple"
 )
 
 func main() {
@@ -57,11 +58,19 @@ func main() {
 		return
 	}
 
-	//spawn a redis pusher
-	err = rdb.RedisPusher(ctx, cfg.Sinks.Redis, blocks, status)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error setting up redis: %s", err)
-		return
+	if cfg.Stdout {
+		err = simple.SimplePusher(ctx, blocks, status)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error setting up simple mode: %s", err)
+			return
+		}
+	} else {
+		//spawn a redis pusher
+		err = rdb.RedisPusher(ctx, cfg.Sinks.Redis, blocks, status)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error setting up redis: %s", err)
+			return
+		}
 	}
 
 	//Wait for the end of the Algoverse

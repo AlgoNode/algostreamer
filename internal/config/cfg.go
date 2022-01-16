@@ -28,6 +28,7 @@ import (
 var cfgFile = flag.String("f", "config.jsonc", "config file")
 var firstRound = flag.Int64("r", -1, "first round to start [-1 = latest]")
 var lastRound = flag.Int64("l", -1, "last round to read [-1 = no limit]")
+var simpleFlag = flag.Bool("s", false, "simple mode - just sending blocks in JSON format to stdout")
 
 type SinksCfg struct {
 	Redis *rdb.RedisConfig `json:"redis"`
@@ -37,7 +38,7 @@ type SteramerConfig struct {
 	Algod  *algod.AlgoConfig `json:"algod"`
 	Sinks  SinksCfg          `json:"sinks"`
 	Rego   *rego.OpaConfig   `json:"opa"`
-	stdout bool
+	Stdout bool              `json:"stdout"`
 }
 
 var defaultConfig = SteramerConfig{}
@@ -56,6 +57,7 @@ func LoadConfig() (cfg SteramerConfig, err error) {
 	}
 	cfg.Algod.FRound = *firstRound
 	cfg.Algod.LRound = *lastRound
+	cfg.Stdout = *simpleFlag
 
 	return cfg, err
 }

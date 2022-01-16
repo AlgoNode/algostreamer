@@ -25,6 +25,8 @@ import (
 	"github.com/algonode/algostreamer/internal/utils"
 	"github.com/algorand/go-algorand-sdk/client/v2/algod"
 	"github.com/algorand/go-algorand-sdk/client/v2/common/models"
+	"github.com/algorand/go-algorand-sdk/encoding/msgpack"
+
 	"github.com/algorand/go-algorand-sdk/types"
 )
 
@@ -44,12 +46,15 @@ type AlgoConfig struct {
 type Status struct {
 	LastRound uint64
 	LagMs     int64
+	NodeId    string
+	LastCP    string
 }
 
 type BlockWrap struct {
-	Block *types.Block
-	Src   string
-	Ts    time.Time
+	Block    *types.Block `json: "block"`
+	BlockRaw []byte       `json:"-"`
+	Src      string       `json:"src"`
+	Ts       time.Time    `json:"ts"`
 }
 
 func AlgoStreamer(ctx context.Context, acfg *AlgoConfig) (chan *BlockWrap, chan *Status, error) {
@@ -70,13 +75,20 @@ func AlgoStreamer(ctx context.Context, acfg *AlgoConfig) (chan *BlockWrap, chan 
 	// filter duplicates, forward only first newwer block.
 	go func() {
 		var maxBlock uint64 = math.MaxUint64
-
+		var maxTs time.Time = time.Now()
+		var maxLeader string = "'"
 		for {
 			select {
 			case bw := <-bchan:
 				if uint64(bw.Block.Round) > maxBlock || maxBlock == math.MaxUint64 {
 					bestbchan <- bw
 					maxBlock = uint64(bw.Block.Round)
+					maxTs = bw.Ts
+					maxLeader = bw.Src
+				} else {
+					if maxBlock == uint64(bw.Block.Round) {
+						fmt.Fprintf(os.Stderr, "Block from %s is %v behind %s\n", bw.Src, bw.Ts.Sub(maxTs), maxLeader)
+					}
 				}
 			case <-ctx.Done():
 			}
@@ -106,7 +118,10 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 		nodeStatus = &ns
 		return nil
 	}, time.Second, time.Millisecond*100, time.Second*5)
-	schan <- &Status{LastRound: uint64(nodeStatus.LastRound), LagMs: int64(nodeStatus.TimeSinceLastRound) / int64(time.Millisecond)}
+	if nodeStatus == nil {
+		return nil
+	}
+	schan <- &Status{NodeId: cfg.Id, LastCP: nodeStatus.LastCatchpoint, LastRound: uint64(nodeStatus.LastRound), LagMs: int64(nodeStatus.TimeSinceLastRound) / int64(time.Millisecond)}
 
 	var nextRound uint64 = 0
 	if start < 0 {
@@ -122,16 +137,24 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 		for stop < 0 || nextRound < uint64(stop) {
 			for ; nextRound <= nodeStatus.LastRound; nextRound++ {
 				err := utils.Backoff(ctx, func(actx context.Context) error {
-					block, err := algodClient.Block(nextRound).Do(ctx)
+					//					block, err := algodClient.Block(nextRound).Do(ctx)
+					rawBlock, err := algodClient.BlockRaw(nextRound).Do(ctx)
 					if err != nil {
 						return err
 					}
+					var response models.BlockResponse
+					if err = msgpack.Decode(rawBlock, &response); err != nil {
+						return err
+					}
+					block := response.Block
+
 					fmt.Fprintf(os.Stderr, "got block %d, queue %d\n", block.Round, len(bchan))
 					select {
 					case bchan <- &BlockWrap{
-						Block: &block,
-						Ts:    time.Now(),
-						Src:   cfg.Id,
+						Block:    &block,
+						BlockRaw: rawBlock,
+						Ts:       time.Now(),
+						Src:      cfg.Id,
 					}:
 					case <-ctx.Done():
 					}
@@ -149,7 +172,7 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 				}
 				nodeStatus = &newStatus
 				fmt.Fprintf(os.Stderr, "algod last round: %d, lag: %s\n", nodeStatus.LastRound, time.Duration(nodeStatus.TimeSinceLastRound)*time.Nanosecond)
-				schan <- &Status{LastRound: uint64(nodeStatus.LastRound), LagMs: int64(nodeStatus.TimeSinceLastRound) / int64(time.Millisecond)}
+				schan <- &Status{NodeId: cfg.Id, LastRound: uint64(nodeStatus.LastRound), LagMs: int64(nodeStatus.TimeSinceLastRound) / int64(time.Millisecond)}
 				return nil
 			}, time.Second*10, time.Millisecond*100, time.Second*10)
 
