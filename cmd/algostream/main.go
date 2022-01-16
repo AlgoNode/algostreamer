@@ -51,6 +51,15 @@ func main() {
 		}()
 	}
 
+	if !cfg.Stdout {
+		if lastBlock, err := rdb.RedisGetLastBlock(ctx, cfg.Sinks.Redis); err == nil {
+			if int64(lastBlock) > cfg.Algod.FRound {
+				cfg.Algod.FRound = int64(lastBlock)
+				fmt.Fprintf(os.Stderr, "Reasuming from last redis commited block %d\n", lastBlock)
+			}
+		}
+	}
+
 	//spawn a block stream fetcher that never fails
 	blocks, status, err := algod.AlgoStreamer(ctx, cfg.Algod)
 	if err != nil {

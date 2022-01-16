@@ -148,7 +148,7 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 					}
 					block := response.Block
 
-					fmt.Fprintf(os.Stderr, "got block %d, queue %d\n", block.Round, len(bchan))
+					//fmt.Fprintf(os.Stderr, "got block %d, queue %d\n", block.Round, len(bchan))
 					select {
 					case bchan <- &BlockWrap{
 						Block:    &block,
@@ -171,7 +171,7 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 					return err
 				}
 				nodeStatus = &newStatus
-				fmt.Fprintf(os.Stderr, "algod last round: %d, lag: %s\n", nodeStatus.LastRound, time.Duration(nodeStatus.TimeSinceLastRound)*time.Nanosecond)
+				//fmt.Fprintf(os.Stderr, "algod last round: %d, lag: %s\n", nodeStatus.LastRound, time.Duration(nodeStatus.TimeSinceLastRound)*time.Nanosecond)
 				schan <- &Status{NodeId: cfg.Id, LastRound: uint64(nodeStatus.LastRound), LagMs: int64(nodeStatus.TimeSinceLastRound) / int64(time.Millisecond)}
 				return nil
 			}, time.Second*10, time.Millisecond*100, time.Second*10)

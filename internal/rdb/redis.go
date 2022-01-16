@@ -19,7 +19,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/algonode/algostreamer/internal/algod"
@@ -37,6 +39,78 @@ type RedisConfig struct {
 	Username string `json:"user"`
 	Password string `json:"pass"`
 	DB       int    `json:"db"`
+}
+
+func RedisPusher(ctx context.Context, cfg *RedisConfig, blocks chan *algod.BlockWrap, status chan *algod.Status) error {
+
+	var rc *redis.Client = nil
+
+	if cfg == nil {
+		return fmt.Errorf("redis config is missing")
+	}
+	rc = redis.NewClient(&redis.Options{
+		Addr:       cfg.Addr,
+		Password:   cfg.Password,
+		Username:   cfg.Username,
+		DB:         cfg.DB,
+		MaxRetries: 0,
+	})
+
+	go func() {
+		for {
+			select {
+			case s := <-status:
+				if rc != nil {
+					handleStatusUpdate(ctx, s, rc, cfg)
+				}
+			case b := <-blocks:
+				for {
+					//No OPA stuff yet - just populate REDIS streams
+					err := handleBlockRedis(ctx, b, rc, cfg, len(blocks))
+					if err == nil {
+						// if len(blocks) == 0 {
+						// 	os.Exit(0)
+						// }
+						break
+					}
+					time.Sleep(time.Second)
+				}
+
+			case <-ctx.Done():
+			}
+
+		}
+	}()
+	return nil
+}
+
+func RedisGetLastBlock(ctx context.Context, cfg *RedisConfig) (uint64, error) {
+
+	if cfg == nil {
+		return 0, fmt.Errorf("redis config is missing")
+	}
+	rc := redis.NewClient(&redis.Options{
+		Addr:       cfg.Addr,
+		Password:   cfg.Password,
+		Username:   cfg.Username,
+		DB:         cfg.DB,
+		MaxRetries: 0,
+	})
+
+	msg, err := rc.XRevRangeN(ctx, "xblock-v2", "+", "-", 1).Result()
+	if err != nil || len(msg) < 1 {
+		return 0, fmt.Errorf("[REDIS] error getting last element \n", err)
+	}
+	a := strings.Split(msg[0].ID, "-")
+	if len(a) < 1 {
+		return 0, fmt.Errorf("[REDIS] error getting last element - invalid block id %s\n", msg[0].ID)
+	}
+	r, err := strconv.ParseUint(a[0], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("[REDIS] error getting last element - invalid block id %s\n", msg[0].ID)
+	}
+
+	return r, nil
 }
 
 func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Client, cfg *RedisConfig) error {
@@ -66,23 +140,9 @@ func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Cli
 	return nil
 }
 
-func handleBlockRedis(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, cfg *RedisConfig) error {
-	// hash := fmt.Sprintf("b:%d", b.Block.Round/10000)
-	// field := strconv.Itoa(int(b.Block.Round % 10000))
+func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) {
 
-	// if err := rc.HSetNX(ctx, hash, field, b.BlockRaw).Err(); err != nil {
-	// 	fmt.Printf("SET ERR %d: %s \n", uint64(b.Block.Round), err)
-	// 	return err
-	// }
-	if err := rc.XAdd(ctx, &redis.XAddArgs{
-		Stream: "xblock-v2",
-		ID:     fmt.Sprintf("%d-0", b.Block.Round),
-		MaxLen: 100000,
-		Approx: true,
-		Values: map[string]interface{}{"msgpack": b.BlockRaw, "round": uint64(b.Block.Round)},
-	}).Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "Err: %s", err)
-	}
+	pipe := rc.Pipeline()
 
 	for i, txn := range b.Block.Payset {
 		//I just love how easy is to get txId nowadays ;)
@@ -97,57 +157,58 @@ func handleBlockRedis(ctx context.Context, b *algod.BlockWrap, rc *redis.Client,
 			fmt.Fprintf(os.Stderr, "Err: %s", err)
 			continue
 		}
-		if err := rc.XAdd(ctx, &redis.XAddArgs{
+		if err := pipe.XAdd(ctx, &redis.XAddArgs{
 			Stream: "xtx-v2",
 			ID:     fmt.Sprintf("%d-%d", b.Block.Round, i),
 			MaxLen: 1000000,
 			Approx: true,
 			Values: map[string]interface{}{"json": string(jTx), "round": uint64(b.Block.Round), "intra": i, "txid": txId},
 		}).Err(); err != nil {
-			fmt.Fprintf(os.Stderr, "Err: %s", err)
+			//fmt.Fprintf(os.Stderr, "Err: %s\n", err)
 		}
 	}
-
-	fmt.Printf("SET OK %d from %s \n", uint64(b.Block.Round), b.Src)
-	return nil
+	pipe.Exec(ctx)
 }
 
-func RedisPusher(ctx context.Context, cfg *RedisConfig, blocks chan *algod.BlockWrap, status chan *algod.Status) error {
-
-	var rc *redis.Client = nil
-
-	if cfg == nil {
-		return fmt.Errorf("Redis config is missing")
+func commitBlock(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) {
+	if err := rc.XAdd(ctx, &redis.XAddArgs{
+		Stream: "xblock-v2",
+		ID:     fmt.Sprintf("%d-0", b.Block.Round),
+		MaxLen: 100000,
+		Approx: true,
+		Values: map[string]interface{}{"msgpack": b.BlockRaw, "round": uint64(b.Block.Round)},
+	}).Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "Err: %s\n", err)
 	}
-	rc = redis.NewClient(&redis.Options{
-		Addr:       cfg.Addr,
-		Password:   cfg.Password,
-		Username:   cfg.Username,
-		DB:         cfg.DB,
-		MaxRetries: 0,
-	})
+}
 
+func handleBlockRedis(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, cfg *RedisConfig, qlen int) error {
+	// hash := fmt.Sprintf("b:%d", b.Block.Round/10000)
+	// field := strconv.Itoa(int(b.Block.Round % 10000))
+
+	// if err := rc.HSetNX(ctx, hash, field, b.BlockRaw).Err(); err != nil {
+	// 	fmt.Printf("SET ERR %d: %s \n", uint64(b.Block.Round), err)
+	// 	return err
+	// }
+
+	start := time.Now()
+
+	wg := sync.WaitGroup{}
+
+	wg.Add(1)
 	go func() {
-		for {
-			select {
-			case s := <-status:
-				if rc != nil {
-					handleStatusUpdate(ctx, s, rc, cfg)
-				}
-			case b := <-blocks:
-				for {
-					//No OPA stuff yet - just populate REDIS streams
-					err := handleBlockRedis(ctx, b, rc, cfg)
-					if err == nil {
-						break
-					}
-					time.Sleep(time.Second)
-				}
-
-			case <-ctx.Done():
-			}
-
-		}
+		defer wg.Done()
+		commitPaySet(ctx, b, rc)
 	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		commitBlock(ctx, b, rc)
+	}()
+
+	wg.Wait()
+
+	fmt.Fprintf(os.Stderr, "[Redis] Block %d processed in %s. QLen:%d\n", uint64(b.Block.Round), time.Since(start), qlen)
 	return nil
 }
