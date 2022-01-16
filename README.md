@@ -19,7 +19,7 @@ go get github.com/algonode/algostreamer
 ## Config
 
 config.jsonc
-```json
+```jsonc
 {
   // archival or catchup Algorand node config
   // setup serveral nodes to fetch from the fastest one or failover
