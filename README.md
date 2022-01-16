@@ -18,20 +18,35 @@ go get github.com/algonode/algostreamer
 
 ## Config
 
-config.json
+config.jsonc
 ```json
 {
-  "algod" : {
-    "address" : "http://localhost:8080",
-    "token" : "...",
-    "queue" : 100
+  // archival or catchup Algorand node config
+  // setup serveral nodes to fetch from the fastest one or failover
+  "algod": {
+    "queue": 100, // buffer up to this number of blocks when processing history
+    "nodes": [
+      {
+        "id": "private-node",
+        "address": "http://localhost:8180",
+        "token": "..."
+      },
+      {
+        "id": "public-node",
+        "address": "https://mainnet-api.algonode.cloud",
+      }
+
+    ]
   },
-  "redis": {
-    "addr": "localhost",
-    "user": "",
-    "pass": "",
-    "db": 10
-  }
+  "sinks": {
+    // redis server config
+    "redis": {
+      "addr": "localhost:6379",
+      "user": "",
+      "pass": "",
+      "db": 0
+    },
+  },
 }
 ```
 
