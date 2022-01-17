@@ -17,11 +17,12 @@ package rdb
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/algonode/algostreamer/internal/algod"
@@ -40,19 +41,6 @@ type RedisConfig struct {
 	Username string `json:"user"`
 	Password string `json:"pass"`
 	DB       int    `json:"db"`
-}
-
-type PubSubPing struct {
-	Round uint64
-	Intra int
-	TxKey string
-	TxId  string
-}
-
-type TxnWrap struct {
-	Json string
-	Txn  *types.SignedTxnInBlock
-	Ping PubSubPing
 }
 
 func RedisPusher(ctx context.Context, cfg *RedisConfig, blocks chan *algod.BlockWrap, status chan *algod.Status) error {
@@ -155,88 +143,103 @@ func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Cli
 	return nil
 }
 
-func publishAccountPings(ctx context.Context, rc *redis.Client, wtxn []*TxnWrap) {
-	accMap := make(map[types.Address][]*PubSubPing)
+type TxWrap struct {
+	TxId  string                  `json:"txid"`
+	Txn   *types.SignedTxnInBlock `json:"txn"`
+	Round uint64                  `json:"round"`
+	Intra int                     `json:"intra"`
+	Key   string                  `json:"xtx-v2"`
+}
 
-	add := func(a types.Address, p *PubSubPing) {
+func getTopics(txw *TxWrap) []string {
+	t := make(map[string]struct{})
+
+	addACC := func(a types.Address) {
 		if a.IsZero() {
 			return
 		}
-		if _, ok := accMap[a]; ok {
-			accMap[a] = append(accMap[a], p)
-		} else {
-			accMap[a] = make([]*PubSubPing, 0, 2)
-			accMap[a] = append(accMap[a], p)
+		t["ACC:"+a.String()] = struct{}{}
+	}
+
+	addASA := func(a types.AssetIndex) {
+		if a == 0 {
+			return
+		}
+		t[fmt.Sprintf("ASA:%d", uint64(a))] = struct{}{}
+	}
+
+	addAPP := func(a types.AppIndex) {
+		if a == 0 {
+			return
+		}
+		t[fmt.Sprintf("APP:%d", uint64(a))] = struct{}{}
+	}
+
+	tx := &txw.Txn.Txn
+	addACC(tx.Sender)
+	addACC(txw.Txn.AuthAddr)
+	switch tx.Type {
+	case types.PaymentTx:
+		addACC(tx.Receiver)
+		addACC(tx.CloseRemainderTo)
+	case types.AssetTransferTx:
+		addACC(tx.AssetSender)
+		addACC(tx.AssetReceiver)
+		addACC(tx.CloseRemainderTo)
+		addASA(tx.XferAsset)
+	case types.AssetConfigTx:
+		addACC(tx.AssetConfigTxnFields.AssetParams.Manager)
+		addACC(tx.AssetConfigTxnFields.AssetParams.Reserve)
+		addACC(tx.AssetConfigTxnFields.AssetParams.Clawback)
+		addACC(tx.AssetConfigTxnFields.AssetParams.Freeze)
+		addASA(tx.ConfigAsset)
+	case types.AssetFreezeTx:
+		addACC(tx.AssetFreezeTxnFields.FreezeAccount)
+		addASA(tx.FreezeAsset)
+	case types.ApplicationCallTx:
+		addAPP(tx.ApplicationID)
+		for i := range tx.ForeignApps {
+			addAPP(tx.ForeignApps[i])
+		}
+		for i := range tx.ForeignAssets {
+			addASA(tx.ForeignAssets[i])
+		}
+		for i := range tx.Accounts {
+			addACC(tx.Accounts[i])
+		}
+	}
+	//Allow subscriptions based on note prefix (up to 32 chars in base64)
+	t["NOTE:"+getNotePrefix(txw, 32)] = struct{}{}
+
+	topics := make([]string, len(t))
+	for k := range t {
+		if len(k) > 0 {
+			topics = append(topics, k)
 		}
 	}
 
-	for i, w := range wtxn {
-		p := &w.Ping
-		tx := &w.Txn.Txn
-		add(tx.Sender, p)
-		add(wtxn[i].Txn.AuthAddr, p)
-		switch tx.Type {
-		case types.PaymentTx:
-			add(tx.Receiver, p)
-			add(tx.CloseRemainderTo, p)
-		case types.AssetTransferTx:
-			add(tx.AssetSender, p)
-			add(tx.AssetReceiver, p)
-			add(tx.CloseRemainderTo, p)
-		case types.AssetConfigTx:
-			add(tx.AssetConfigTxnFields.AssetParams.Manager, p)
-			add(tx.AssetConfigTxnFields.AssetParams.Reserve, p)
-			add(tx.AssetConfigTxnFields.AssetParams.Clawback, p)
-			add(tx.AssetConfigTxnFields.AssetParams.Freeze, p)
-		case types.AssetFreezeTx:
-			add(tx.AssetFreezeTxnFields.FreezeAccount, p)
-		case types.ApplicationCallTx:
-			for i := range tx.Accounts {
-				add(tx.Accounts[i], p)
-			}
-		}
+	return topics
+}
+func getNotePrefix(txw *TxWrap, l int) string {
+	nb64 := base64.StdEncoding.EncodeToString(txw.Txn.Txn.Note)
+	if l > len(nb64) {
+		return nb64
 	}
-
-	pipe := rc.Pipeline()
-	for a, pings := range accMap {
-		p := make([]string, len(pings))
-		for i := range pings {
-			p[i] = pings[i].TxKey
-		}
-		msg := fmt.Sprintf("{\"xtx-v2\":[\"%s\"]}", strings.Join(p, "\",\""))
-		pipe.Publish(ctx, "account:"+a.String(), msg).Err()
-	}
-
-	pipe.Exec(ctx)
-
+	return nb64[:l]
 }
 
-func publishWTXs(ctx context.Context, rc *redis.Client, wtxn []*TxnWrap) {
-	wg := sync.WaitGroup{}
-	wg.Add(3)
-	go func() {
-		defer wg.Done()
-		publishAccountPings(ctx, rc, wtxn)
-	}()
-	go func() {
-		defer wg.Done()
-		//publishAssetPings(ctx, rc, wtxn)
-	}()
-	go func() {
-		defer wg.Done()
-		//publishAppPings(ctx, rc, wtxn)
-	}()
-
-	wg.Wait()
+func genTopic(txw *TxWrap) string {
+	topics := getTopics(txw)
+	sort.Strings(topics)
+	return fmt.Sprintf("TX:%s/%s", txw.TxId, strings.Join(topics, "/"))
 }
 
-func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) {
+func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, publish bool) {
 	if len(b.Block.Payset) == 0 {
 		return
 	}
 
 	pipe := rc.Pipeline()
-	var WTXs []*TxnWrap = make([]*TxnWrap, 0, len(b.Block.Payset))
 
 	for i := range b.Block.Payset {
 		txn := &b.Block.Payset[i]
@@ -247,38 +250,40 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) {
 			continue
 		}
 
-		jTx, err := utils.EncodeJson(txn)
+		txw := &TxWrap{
+			TxId:  txId,
+			Txn:   txn,
+			Round: uint64(b.Block.Round),
+			Intra: i,
+			Key:   fmt.Sprintf("%d-%d", uint64(b.Block.Round), i),
+		}
+		jTx, err := utils.EncodeJson(txw)
+
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Err: %s\n", err)
 			continue
 		}
-
-		WTXs = append(WTXs, &TxnWrap{
-			Ping: PubSubPing{
-				TxId:  txId,
-				Round: uint64(b.Block.Round),
-				Intra: i,
-				TxKey: fmt.Sprintf("%d-%d", uint64(b.Block.Round), i),
-			},
-			Json: string(jTx),
-			Txn:  txn,
-		})
 
 		if err := pipe.XAdd(ctx, &redis.XAddArgs{
 			Stream: "xtx-v2",
 			ID:     fmt.Sprintf("%d-%d", b.Block.Round, i),
 			MaxLen: 1000000,
 			Approx: true,
-			Values: map[string]interface{}{"json": string(jTx), "round": uint64(b.Block.Round), "intra": i, "txid": txId},
+			Values: string(jTx),
 		}).Err(); err != nil {
 			//fmt.Fprintf(os.Stderr, "Err: %s\n", err)
 		}
+
+		if publish {
+			topic := genTopic(txw)
+			pipe.Publish(ctx, topic, string(jTx))
+		}
+
 	}
 	pipe.Exec(ctx)
-	publishWTXs(ctx, rc, WTXs)
 }
 
-func commitBlock(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) {
+func commitBlock(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) bool {
 	if err := rc.XAdd(ctx, &redis.XAddArgs{
 		Stream: "xblock-v2",
 		ID:     fmt.Sprintf("%d-0", b.Block.Round),
@@ -286,8 +291,9 @@ func commitBlock(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) {
 		Approx: true,
 		Values: map[string]interface{}{"msgpack": b.BlockRaw, "round": uint64(b.Block.Round)},
 	}).Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "Err: %s\n", err)
+		return false
 	}
+	return true
 }
 
 func handleBlockRedis(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, cfg *RedisConfig, qlen int) error {
@@ -301,21 +307,10 @@ func handleBlockRedis(ctx context.Context, b *algod.BlockWrap, rc *redis.Client,
 
 	start := time.Now()
 
-	wg := sync.WaitGroup{}
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		commitPaySet(ctx, b, rc)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		commitBlock(ctx, b, rc)
-	}()
-
-	wg.Wait()
+	//Try to commit new block
+	//If successful that we should broadcast to pub/sub
+	publish := commitBlock(ctx, b, rc)
+	commitPaySet(ctx, b, rc, publish)
 
 	fmt.Fprintf(os.Stderr, "[Redis] Block %d processed in %s. QLen:%d\n", uint64(b.Block.Round), time.Since(start), qlen)
 	return nil
