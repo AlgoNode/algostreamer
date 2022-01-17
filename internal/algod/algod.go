@@ -134,7 +134,8 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 
 	//Loop until Algoverse gets canelled
 	go func() {
-		for stop < 0 || nextRound < uint64(stop) {
+		ustop := uint64(stop)
+		for stop < 0 || nextRound <= ustop {
 			for ; nextRound <= nodeStatus.LastRound; nextRound++ {
 				err := utils.Backoff(ctx, func(actx context.Context) error {
 					//					block, err := algodClient.Block(nextRound).Do(ctx)
@@ -160,7 +161,7 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 					}
 					return ctx.Err()
 				}, time.Second, time.Millisecond*100, time.Second*15)
-				if err != nil {
+				if err != nil || nextRound >= ustop {
 					return
 				}
 			}

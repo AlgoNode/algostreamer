@@ -125,7 +125,6 @@ func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Cli
 		fmt.Fprintf(os.Stderr, "Err: %s\n", err)
 		return err
 	}
-	//18650000#YVYJHWA4AJS36CTISLIK7ZVYBMLWK3MFTE7UZGK7YBZBJKQISBWQ
 	if status.LastCP != "" {
 		a := strings.Split(status.LastCP, "#")
 		if len(a) > 0 {
@@ -210,6 +209,9 @@ func getTopics(txw *TxWrap) []string {
 	}
 	//Allow subscriptions based on note prefix (up to 32 chars in base64)
 	t["NOTE:"+getNotePrefix(txw, 32)] = struct{}{}
+	if tx.Group != (types.Digest{}) {
+		t["GRP:"+base64.StdEncoding.EncodeToString(tx.Group[:])] = struct{}{}
+	}
 
 	topics := make([]string, len(t))
 	for k := range t {
@@ -231,7 +233,7 @@ func getNotePrefix(txw *TxWrap, l int) string {
 func genTopic(txw *TxWrap) string {
 	topics := getTopics(txw)
 	sort.Strings(topics)
-	return fmt.Sprintf("TX:%s/%s", txw.TxId, strings.Join(topics, "/"))
+	return fmt.Sprintf("TX:%s;%s", txw.TxId, strings.Join(topics, ";"))
 }
 
 func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, publish bool) {
@@ -267,7 +269,7 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 		if err := pipe.XAdd(ctx, &redis.XAddArgs{
 			Stream: "xtx-v2",
 			ID:     fmt.Sprintf("%d-%d", b.Block.Round, i),
-			MaxLen: 1000000,
+			MaxLen: 200_000,
 			Approx: true,
 			Values: string(jTx),
 		}).Err(); err != nil {
@@ -287,7 +289,7 @@ func commitBlock(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) bool
 	if err := rc.XAdd(ctx, &redis.XAddArgs{
 		Stream: "xblock-v2",
 		ID:     fmt.Sprintf("%d-0", b.Block.Round),
-		MaxLen: 100000,
+		MaxLen: 100_000,
 		Approx: true,
 		Values: map[string]interface{}{"msgpack": b.BlockRaw, "round": uint64(b.Block.Round)},
 	}).Err(); err != nil {
