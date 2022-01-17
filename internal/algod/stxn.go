@@ -24,19 +24,19 @@ import (
 	"github.com/algorand/go-algorand/protocol"
 )
 
-func DecodeSignedTxn(bh types.BlockHeader, stb types.SignedTxnInBlock) (types.SignedTxn, string, error) {
-	st := stb.SignedTxn
+func DecodeTxnId(bh types.BlockHeader, stb *types.SignedTxnInBlock) (string, error) {
+	st := &stb.SignedTxn
 
 	proto, ok := config.Consensus[protocol.ConsensusVersion(bh.CurrentProtocol)]
 	if !ok {
-		return types.SignedTxn{}, "", fmt.Errorf("consensus protocol %s not found", bh.CurrentProtocol)
+		return "", fmt.Errorf("consensus protocol %s not found", bh.CurrentProtocol)
 	}
 	if !proto.SupportSignedTxnInBlock {
-		return st, "", nil
+		return "", nil
 	}
 
 	if st.Txn.GenesisID != "" {
-		return types.SignedTxn{}, "", fmt.Errorf("GenesisID <%s> not empty", st.Txn.GenesisID)
+		return "", fmt.Errorf("GenesisID <%s> not empty", st.Txn.GenesisID)
 	}
 
 	if stb.HasGenesisID {
@@ -44,12 +44,12 @@ func DecodeSignedTxn(bh types.BlockHeader, stb types.SignedTxnInBlock) (types.Si
 	}
 
 	if st.Txn.GenesisHash != (types.Digest{}) {
-		return types.SignedTxn{}, "", fmt.Errorf("GenesisHash <%v> not empty", st.Txn.GenesisHash)
+		return "", fmt.Errorf("GenesisHash <%v> not empty", st.Txn.GenesisHash)
 	}
 
 	if proto.RequireGenesisHash {
 		if stb.HasGenesisHash {
-			return types.SignedTxn{}, "", fmt.Errorf("HasGenesisHash set to true but RequireGenesisHash obviates the flag")
+			return "", fmt.Errorf("HasGenesisHash set to true but RequireGenesisHash obviates the flag")
 		}
 		st.Txn.GenesisHash = bh.GenesisHash
 	} else {
@@ -58,5 +58,5 @@ func DecodeSignedTxn(bh types.BlockHeader, stb types.SignedTxnInBlock) (types.Si
 		}
 	}
 
-	return st, crypto.GetTxID(st.Txn), nil
+	return crypto.GetTxID(st.Txn), nil
 }

@@ -26,6 +26,7 @@ import (
 
 	"github.com/algonode/algostreamer/internal/algod"
 	"github.com/algonode/algostreamer/internal/utils"
+	"github.com/algorand/go-algorand-sdk/types"
 
 	"github.com/go-redis/redis/v8"
 )
@@ -41,6 +42,19 @@ type RedisConfig struct {
 	DB       int    `json:"db"`
 }
 
+type PubSubPing struct {
+	Round uint64
+	Intra int
+	TxKey string
+	TxId  string
+}
+
+type TxnWrap struct {
+	Json string
+	Txn  *types.SignedTxnInBlock
+	Ping PubSubPing
+}
+
 func RedisPusher(ctx context.Context, cfg *RedisConfig, blocks chan *algod.BlockWrap, status chan *algod.Status) error {
 
 	var rc *redis.Client = nil
@@ -54,6 +68,7 @@ func RedisPusher(ctx context.Context, cfg *RedisConfig, blocks chan *algod.Block
 		Username:   cfg.Username,
 		DB:         cfg.DB,
 		MaxRetries: 0,
+		PoolSize:   50,
 	})
 
 	go func() {
@@ -119,7 +134,7 @@ func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Cli
 		"lag", status.LagMs,
 		"lcp", status.LastCP).Err()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Err: %s", err)
+		fmt.Fprintf(os.Stderr, "Err: %s\n", err)
 		return err
 	}
 	//18650000#YVYJHWA4AJS36CTISLIK7ZVYBMLWK3MFTE7UZGK7YBZBJKQISBWQ
@@ -131,7 +146,7 @@ func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Cli
 				ID:     fmt.Sprintf("%s-0", a[0]),
 				Values: map[string]interface{}{"last": status.LastCP, "time": time.Now()},
 			}).Err(); err != nil {
-				fmt.Fprintf(os.Stderr, "Err: %s", err)
+				fmt.Fprintf(os.Stderr, "Err: %s\n", err)
 				return err
 			}
 			rc.XTrimMaxLen(ctx, "lcp", 1000)
@@ -140,23 +155,115 @@ func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Cli
 	return nil
 }
 
-func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) {
+func publishAccountPings(ctx context.Context, rc *redis.Client, wtxn []*TxnWrap) {
+	accMap := make(map[types.Address][]*PubSubPing)
+
+	add := func(a types.Address, p *PubSubPing) {
+		if a.IsZero() {
+			return
+		}
+		if _, ok := accMap[a]; ok {
+			accMap[a] = append(accMap[a], p)
+		} else {
+			accMap[a] = make([]*PubSubPing, 0, 2)
+			accMap[a] = append(accMap[a], p)
+		}
+	}
+
+	for i, w := range wtxn {
+		p := &w.Ping
+		tx := &w.Txn.Txn
+		add(tx.Sender, p)
+		add(wtxn[i].Txn.AuthAddr, p)
+		switch tx.Type {
+		case types.PaymentTx:
+			add(tx.Receiver, p)
+			add(tx.CloseRemainderTo, p)
+		case types.AssetTransferTx:
+			add(tx.AssetSender, p)
+			add(tx.AssetReceiver, p)
+			add(tx.CloseRemainderTo, p)
+		case types.AssetConfigTx:
+			add(tx.AssetConfigTxnFields.AssetParams.Manager, p)
+			add(tx.AssetConfigTxnFields.AssetParams.Reserve, p)
+			add(tx.AssetConfigTxnFields.AssetParams.Clawback, p)
+			add(tx.AssetConfigTxnFields.AssetParams.Freeze, p)
+		case types.AssetFreezeTx:
+			add(tx.AssetFreezeTxnFields.FreezeAccount, p)
+		case types.ApplicationCallTx:
+			for i := range tx.Accounts {
+				add(tx.Accounts[i], p)
+			}
+		}
+	}
 
 	pipe := rc.Pipeline()
+	for a, pings := range accMap {
+		p := make([]string, len(pings))
+		for i := range pings {
+			p[i] = pings[i].TxKey
+		}
+		msg := fmt.Sprintf("{\"xtx-v2\":[\"%s\"]}", strings.Join(p, "\",\""))
+		pipe.Publish(ctx, "account:"+a.String(), msg).Err()
+	}
 
-	for i, txn := range b.Block.Payset {
+	pipe.Exec(ctx)
+
+}
+
+func publishWTXs(ctx context.Context, rc *redis.Client, wtxn []*TxnWrap) {
+	wg := sync.WaitGroup{}
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		publishAccountPings(ctx, rc, wtxn)
+	}()
+	go func() {
+		defer wg.Done()
+		//publishAssetPings(ctx, rc, wtxn)
+	}()
+	go func() {
+		defer wg.Done()
+		//publishAppPings(ctx, rc, wtxn)
+	}()
+
+	wg.Wait()
+}
+
+func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) {
+	if len(b.Block.Payset) == 0 {
+		return
+	}
+
+	pipe := rc.Pipeline()
+	var WTXs []*TxnWrap = make([]*TxnWrap, 0, len(b.Block.Payset))
+
+	for i := range b.Block.Payset {
+		txn := &b.Block.Payset[i]
 		//I just love how easy is to get txId nowadays ;)
-		_, txId, err := algod.DecodeSignedTxn(b.Block.BlockHeader, txn)
+		txId, err := algod.DecodeTxnId(b.Block.BlockHeader, txn)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Err: %s", err)
+			fmt.Fprintf(os.Stderr, "Err: %s\n", err)
 			continue
 		}
 
 		jTx, err := utils.EncodeJson(txn)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Err: %s", err)
+			fmt.Fprintf(os.Stderr, "Err: %s\n", err)
 			continue
 		}
+
+		WTXs = append(WTXs, &TxnWrap{
+			Ping: PubSubPing{
+				TxId:  txId,
+				Round: uint64(b.Block.Round),
+				Intra: i,
+				TxKey: fmt.Sprintf("%d-%d", uint64(b.Block.Round), i),
+			},
+			Json: string(jTx),
+			Txn:  txn,
+		})
+
 		if err := pipe.XAdd(ctx, &redis.XAddArgs{
 			Stream: "xtx-v2",
 			ID:     fmt.Sprintf("%d-%d", b.Block.Round, i),
@@ -168,6 +275,7 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) {
 		}
 	}
 	pipe.Exec(ctx)
+	publishWTXs(ctx, rc, WTXs)
 }
 
 func commitBlock(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) {
