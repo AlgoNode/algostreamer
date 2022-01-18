@@ -271,9 +271,9 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 			ID:     fmt.Sprintf("%d-%d", b.Block.Round, i),
 			MaxLen: 200_000,
 			Approx: true,
-			Values: string(jTx),
+			Values: map[string]interface{}{"json": string(jTx)},
 		}).Err(); err != nil {
-			//fmt.Fprintf(os.Stderr, "Err: %s\n", err)
+			fmt.Fprintf(os.Stderr, "Err: %s\n", err)
 		}
 
 		if publish {
@@ -282,7 +282,9 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 		}
 
 	}
-	pipe.Exec(ctx)
+	if _, err := pipe.Exec(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Err: %s\n", err)
+	}
 }
 
 func commitBlock(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) bool {

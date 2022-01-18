@@ -10,5 +10,5 @@ RUN strip /go/bin/algostream
 
 FROM gcr.io/distroless/static
 
-COPY --from=build-env /go/bin/algostream /app
+COPY --from=build-env /go/bin/algostream /app/
 CMD ["/app/algostream"]
