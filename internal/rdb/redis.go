@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/algonode/algostreamer/internal/algod"
@@ -33,7 +34,9 @@ import (
 )
 
 const (
-	PFX_Node = "nd:"
+	PFX_Node   = "nd:"
+	MAX_Blocks = 20_000
+	MAX_TXN    = 1_000_000
 )
 
 type RedisConfig struct {
@@ -131,12 +134,13 @@ func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Cli
 			if err := rc.XAdd(ctx, &redis.XAddArgs{
 				Stream: "lcp",
 				ID:     fmt.Sprintf("%s-0", a[0]),
+				MaxLen: 1000,
+				Approx: true,
 				Values: map[string]interface{}{"last": status.LastCP, "time": time.Now()},
 			}).Err(); err != nil {
 				fmt.Fprintf(os.Stderr, "Err: %s\n", err)
 				return err
 			}
-			rc.XTrimMaxLen(ctx, "lcp", 1000)
 		}
 	}
 	return nil
@@ -269,7 +273,7 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 		if err := pipe.XAdd(ctx, &redis.XAddArgs{
 			Stream: "xtx-v2",
 			ID:     fmt.Sprintf("%d-%d", b.Block.Round, i),
-			MaxLen: 200_000,
+			MaxLen: MAX_TXN,
 			Approx: true,
 			Values: map[string]interface{}{"json": string(jTx)},
 		}).Err(); err != nil {
@@ -287,35 +291,57 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 	}
 }
 
-func commitBlock(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) bool {
-	if err := rc.XAdd(ctx, &redis.XAddArgs{
-		Stream: "xblock-v2",
-		ID:     fmt.Sprintf("%d-0", b.Block.Round),
-		MaxLen: 100_000,
-		Approx: true,
-		Values: map[string]interface{}{"msgpack": b.BlockRaw, "round": uint64(b.Block.Round)},
-	}).Err(); err != nil {
-		return false
-	}
-	return true
+func commitBlock(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) (first bool) {
+	var wg sync.WaitGroup
+	first = false
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		jBlock, err := utils.EncodeJson(b.Block)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error encoding block to json: %s\n", err)
+		} else {
+			if err := rc.XAdd(ctx, &redis.XAddArgs{
+				Stream: "xblock-v2-json",
+				ID:     fmt.Sprintf("%d-0", b.Block.Round),
+				MaxLen: MAX_Blocks,
+				Approx: true,
+				Values: map[string]interface{}{"json": string(jBlock), "round": uint64(b.Block.Round)},
+			}).Err(); err != nil {
+				fmt.Fprintf(os.Stderr, "Err: %s\n", err)
+				//do not bail out
+			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := rc.XAdd(ctx, &redis.XAddArgs{
+			Stream: "xblock-v2",
+			ID:     fmt.Sprintf("%d-0", b.Block.Round),
+			MaxLen: MAX_Blocks,
+			Approx: true,
+			Values: map[string]interface{}{"msgpack": b.BlockRaw, "round": uint64(b.Block.Round)},
+		}).Err(); err == nil {
+			//We are first to commit this block to the store
+			first = true
+		}
+	}()
+
+	wg.Wait()
+	return first
 }
 
 func handleBlockRedis(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, cfg *RedisConfig, qlen int) error {
-	// hash := fmt.Sprintf("b:%d", b.Block.Round/10000)
-	// field := strconv.Itoa(int(b.Block.Round % 10000))
-
-	// if err := rc.HSetNX(ctx, hash, field, b.BlockRaw).Err(); err != nil {
-	// 	fmt.Printf("SET ERR %d: %s \n", uint64(b.Block.Round), err)
-	// 	return err
-	// }
-
 	start := time.Now()
 
 	//Try to commit new block
-	//If successful that we should broadcast to pub/sub
+	//If successful than we should broadcast to pub/sub
 	publish := commitBlock(ctx, b, rc)
 	commitPaySet(ctx, b, rc, publish)
 
-	fmt.Fprintf(os.Stderr, "[Redis] Block %d processed in %s. QLen:%d\n", uint64(b.Block.Round), time.Since(start), qlen)
+	fmt.Fprintf(os.Stderr, "[Redis] Block %d processed in %s (%d txn). QLen:%d\n", uint64(b.Block.Round), time.Since(start), len(b.Block.Payset), qlen)
 	return nil
 }
