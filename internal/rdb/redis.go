@@ -35,8 +35,8 @@ import (
 
 const (
 	PFX_Node   = "nd:"
-	MAX_Blocks = 20_000
-	MAX_TXN    = 1_000_000
+	MAX_Blocks = 10_000
+	MAX_TXN    = 100_000
 )
 
 type RedisConfig struct {
@@ -291,10 +291,53 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 	}
 }
 
+func updateStats(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) {
+	if len(b.Block.Payset) == 0 {
+		return
+	}
+
+	today := time.Unix(b.Block.TimeStamp, 0).UTC().Format("20060102")
+	todayC := "CD:" + today
+	todayV := "VD:" + today
+
+	asaC := make(map[uint64]int64)
+	asaV := make(map[uint64]float64)
+	pipe := rc.Pipeline()
+
+	for i := range b.Block.Payset {
+		txn := &b.Block.Payset[i]
+		//Aggregate asset tx stats
+		if txn.Txn.XferAsset > 0 {
+			asaC[uint64(txn.Txn.XferAsset)]++
+			asaV[uint64(txn.Txn.XferAsset)] += float64(txn.Txn.AssetAmount)
+		}
+		if txn.Txn.ConfigAsset > 0 {
+			asaC[uint64(txn.Txn.ConfigAsset)]++
+		}
+		if txn.Txn.FreezeAsset > 0 {
+			asaC[uint64(txn.Txn.FreezeAsset)]++
+		}
+	}
+
+	for k := range asaC {
+		hk := fmt.Sprintf("ASA:%d", k)
+		pipe.HIncrBy(ctx, hk, todayC, asaC[k])
+		if v, ok := asaV[k]; ok {
+			pipe.HIncrByFloat(ctx, hk, todayV, v)
+		}
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Err: %s\n", err)
+	}
+}
+
 func commitBlock(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) (first bool) {
 	var wg sync.WaitGroup
 	first = false
 
+	//Enqeue MSGPACK and JSON versions in paralell.
+	//Check if we are the first to enqueue
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -340,8 +383,13 @@ func handleBlockRedis(ctx context.Context, b *algod.BlockWrap, rc *redis.Client,
 	//Try to commit new block
 	//If successful than we should broadcast to pub/sub
 	publish := commitBlock(ctx, b, rc)
+	if publish {
+		go func() {
+			updateStats(ctx, b, rc)
+		}()
+	}
 	commitPaySet(ctx, b, rc, publish)
 
-	fmt.Fprintf(os.Stderr, "[Redis] Block %d processed in %s (%d txn). QLen:%d\n", uint64(b.Block.Round), time.Since(start), len(b.Block.Payset), qlen)
+	fmt.Fprintf(os.Stderr, "[Redis] Block %d@%s processed in %s (%d txn). QLen:%d\n", uint64(b.Block.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), time.Since(start), len(b.Block.Payset), qlen)
 	return nil
 }
