@@ -138,7 +138,9 @@ func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Cli
 				Approx: true,
 				Values: map[string]interface{}{"last": status.LastCP, "time": time.Now()},
 			}).Err(); err != nil {
-				fmt.Fprintf(os.Stderr, "Err: %s\n", err)
+				if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
+					fmt.Fprintf(os.Stderr, "Err: %s\n", err)
+				}
 				return err
 			}
 		}
@@ -277,7 +279,9 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 			Approx: true,
 			Values: map[string]interface{}{"json": string(jTx)},
 		}).Err(); err != nil {
-			fmt.Fprintf(os.Stderr, "Err: %s\n", err)
+			if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
+				fmt.Fprintf(os.Stderr, "Err: %s\n", err)
+			}
 		}
 
 		if publish {
@@ -287,7 +291,9 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 
 	}
 	if _, err := pipe.Exec(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Err: %s\n", err)
+		if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
+			fmt.Fprintf(os.Stderr, "Err: %s\n", err)
+		}
 	}
 }
 
@@ -352,7 +358,9 @@ func commitBlock(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) (fir
 				Approx: true,
 				Values: map[string]interface{}{"json": string(jBlock), "round": uint64(b.Block.Round)},
 			}).Err(); err != nil {
-				fmt.Fprintf(os.Stderr, "Err: %s\n", err)
+				if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
+					fmt.Fprintf(os.Stderr, "Err: %s\n", err)
+				}
 				//do not bail out
 			}
 		}
@@ -390,6 +398,11 @@ func handleBlockRedis(ctx context.Context, b *algod.BlockWrap, rc *redis.Client,
 	}
 	commitPaySet(ctx, b, rc, publish)
 
-	fmt.Fprintf(os.Stderr, "[Redis] Block %d@%s processed in %s (%d txn). QLen:%d\n", uint64(b.Block.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), time.Since(start), len(b.Block.Payset), qlen)
+	p := "-"
+	if publish {
+		p = "+"
+	}
+
+	fmt.Fprintf(os.Stderr, "[Redis] Block %d@%s processed(%s) in %s (%d txn). QLen:%d\n", uint64(b.Block.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), qlen)
 	return nil
 }
