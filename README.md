@@ -78,4 +78,4 @@ License, or (at your option) any later version.
 
 if you like what we do feel free to support us by sending some microAlgos to
 
-**AlgoNode wallet**: `S322JRT4RZ4L2CLEQ5HXQBU2CNH3DLLO6JJEMWGPQHAOG2ALCH7ZAHXOPE`
+**AlgoNode wallet**: `ALGONODEIBJTET5OSEAXIHDSIEG7C2DOFB2WDYLRZTXN3NXVJ3NJD26L4E`
