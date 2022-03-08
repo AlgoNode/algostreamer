@@ -117,7 +117,7 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 		}
 		nodeStatus = &ns
 		return nil
-	}, time.Second, time.Millisecond*100, time.Second*5)
+	}, time.Second*10, time.Millisecond*100, time.Second*10)
 	if nodeStatus == nil {
 		return nil
 	}
@@ -160,7 +160,7 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 					case <-ctx.Done():
 					}
 					return ctx.Err()
-				}, time.Second, time.Millisecond*100, time.Second*15)
+				}, time.Second*10, time.Millisecond*100, time.Second*10)
 				if err != nil || nextRound >= ustop {
 					return
 				}
