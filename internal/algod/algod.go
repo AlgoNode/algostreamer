@@ -144,6 +144,7 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 						return err
 					}
 					var response models.BlockResponse
+					msgpack.CodecHandle.ErrorIfNoField = false
 					if err = msgpack.Decode(rawBlock, &response); err != nil {
 						return err
 					}
