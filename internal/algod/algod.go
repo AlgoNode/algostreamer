@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/algonode/algostreamer/internal/utils"
@@ -57,6 +58,11 @@ type BlockWrap struct {
 	Ts       time.Time    `json:"ts"`
 }
 
+//globalMaxBlock holds the highest read block across all connected nodes
+//writes must use atomic interface
+//reads are safe as the var is 64bit aligned
+var globalMaxBlock uint64 = 0
+
 func AlgoStreamer(ctx context.Context, acfg *AlgoConfig) (chan *BlockWrap, chan *Status, error) {
 	qDepth := acfg.Queue
 	if qDepth < 1 {
@@ -72,7 +78,7 @@ func AlgoStreamer(ctx context.Context, acfg *AlgoConfig) (chan *BlockWrap, chan 
 		}
 	}
 
-	// filter duplicates, forward only first newwer block.
+	// filter duplicates, forward only first newer blocks.
 	go func() {
 		var maxBlock uint64 = math.MaxUint64
 		var maxTs time.Time = time.Now()
@@ -83,11 +89,12 @@ func AlgoStreamer(ctx context.Context, acfg *AlgoConfig) (chan *BlockWrap, chan 
 				if uint64(bw.Block.Round) > maxBlock || maxBlock == math.MaxUint64 {
 					bestbchan <- bw
 					maxBlock = uint64(bw.Block.Round)
+					atomic.StoreUint64(&globalMaxBlock, maxBlock)
 					maxTs = bw.Ts
 					maxLeader = bw.Src
 				} else {
 					if maxBlock == uint64(bw.Block.Round) {
-						fmt.Fprintf(os.Stderr, "Block from %s is %v behind %s\n", bw.Src, bw.Ts.Sub(maxTs), maxLeader)
+						fmt.Fprintf(os.Stderr, "[INFO][ALGOD] Block from %s is %v behind %s\n", bw.Src, bw.Ts.Sub(maxTs), maxLeader)
 					}
 				}
 			case <-ctx.Done():
@@ -104,16 +111,16 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 	// Create an algod client
 	algodClient, err := algod.MakeClient(cfg.Address, cfg.Token)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to make algod client: %s\n", err)
+		fmt.Fprintf(os.Stderr, "[!ERR][ALGOD][%s] failed to make algod client: %s\n", cfg.Id, err)
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "Algo client: %s\n", cfg.Address)
+	fmt.Fprintf(os.Stderr, "[INFO][ALGOD][%s] new algod client: %s\n", cfg.Id, cfg.Address)
 
 	var nodeStatus *models.NodeStatus = nil
 	utils.Backoff(ctx, func(actx context.Context) error {
 		ns, err := algodClient.Status().Do(actx)
 		if err != nil {
-			return err
+			return fmt.Errorf("[!ERR][ALGOD][%s] %s\n", cfg.Id, err.Error())
 		}
 		nodeStatus = &ns
 		return nil
@@ -126,27 +133,32 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 	var nextRound uint64 = 0
 	if start < 0 {
 		nextRound = nodeStatus.LastRound
-		fmt.Fprintf(os.Stderr, "Starting from last round : %d\n", nodeStatus.LastRound)
+		fmt.Fprintf(os.Stderr, "[WARN][ALGOD][%s] Starting from last round : %d\n", cfg.Id, nodeStatus.LastRound)
 	} else {
 		nextRound = uint64(start)
-		fmt.Fprintf(os.Stderr, "Starting from fixed round : %d\n", nextRound)
+		fmt.Fprintf(os.Stderr, "[WARN][ALGOD][%s] Starting from fixed round : %d\n", cfg.Id, nextRound)
 	}
 
-	//Loop until Algoverse gets canelled
+	//Loop until Algoverse gets cancelled
 	go func() {
 		ustop := uint64(stop)
 		for stop < 0 || nextRound <= ustop {
 			for ; nextRound <= nodeStatus.LastRound; nextRound++ {
 				err := utils.Backoff(ctx, func(actx context.Context) error {
-					//					block, err := algodClient.Block(nextRound).Do(ctx)
+					gMax := globalMaxBlock
+					//skip old blocks in case other nodes are ahead of us
+					if gMax > nextRound {
+						fmt.Fprintf(os.Stderr, "[WARN][ALGOD][%s] skipping ahead %d blocks to %d\n", cfg.Id, gMax-nextRound, gMax)
+						nextRound = globalMaxBlock
+					}
 					rawBlock, err := algodClient.BlockRaw(nextRound).Do(ctx)
 					if err != nil {
-						return err
+						return fmt.Errorf("[!ERR][ALGOD][%s] %s", cfg.Id, err.Error())
 					}
 					var response models.BlockResponse
 					msgpack.CodecHandle.ErrorIfNoField = false
 					if err = msgpack.Decode(rawBlock, &response); err != nil {
-						return err
+						return fmt.Errorf("[!ERR][ALGOD][%s] %s", cfg.Id, err.Error())
 					}
 					block := response.Block
 
@@ -170,7 +182,7 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 			err := utils.Backoff(ctx, func(actx context.Context) error {
 				newStatus, err := algodClient.StatusAfterBlock(nodeStatus.LastRound).Do(actx)
 				if err != nil {
-					return err
+					return fmt.Errorf("[!ERR][ALGOD][%s] %s", cfg.Id, err.Error())
 				}
 				nodeStatus = &newStatus
 				//fmt.Fprintf(os.Stderr, "algod last round: %d, lag: %s\n", nodeStatus.LastRound, time.Duration(nodeStatus.TimeSinceLastRound)*time.Nanosecond)

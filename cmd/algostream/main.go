@@ -33,7 +33,7 @@ func main() {
 	//load config
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %s", err)
+		fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] loading config: %s\n", err)
 		return
 	}
 
@@ -46,7 +46,7 @@ func main() {
 		signal.Notify(cancelCh, syscall.SIGTERM, syscall.SIGINT)
 		go func() {
 			<-cancelCh
-			fmt.Fprintf(os.Stderr, "Stopping streamer.\n")
+			fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] stopping streamer.\n")
 			cf()
 		}()
 	}
@@ -55,7 +55,7 @@ func main() {
 		if lastBlock, err := rdb.RedisGetLastBlock(ctx, cfg.Sinks.Redis); err == nil {
 			if int64(lastBlock) > cfg.Algod.FRound {
 				cfg.Algod.FRound = int64(lastBlock)
-				fmt.Fprintf(os.Stderr, "Reasuming from last redis commited block %d\n", lastBlock)
+				fmt.Fprintf(os.Stderr, "[INFO][_MAIN] Reasuming from last redis commited block %d\n", lastBlock)
 			}
 		}
 	}
@@ -63,21 +63,21 @@ func main() {
 	//spawn a block stream fetcher that never fails
 	blocks, status, err := algod.AlgoStreamer(ctx, cfg.Algod)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting algod stream: %s", err)
+		fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] error getting algod stream: %s\n", err)
 		return
 	}
 
 	if cfg.Stdout {
 		err = simple.SimplePusher(ctx, blocks, status)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error setting up simple mode: %s", err)
+			fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] error setting up simple mode: %s\n", err)
 			return
 		}
 	} else {
 		//spawn a redis pusher
 		err = rdb.RedisPusher(ctx, cfg.Sinks.Redis, blocks, status)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error setting up redis: %s", err)
+			fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] error setting up redis: %s\n", err)
 			return
 		}
 	}

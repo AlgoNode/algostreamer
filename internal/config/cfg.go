@@ -50,10 +50,10 @@ func LoadConfig() (cfg SteramerConfig, err error) {
 	err = utils.LoadJSONCFromFile(*cfgFile, &cfg)
 
 	if cfg.Algod == nil {
-		return cfg, fmt.Errorf("Missing algod config")
+		return cfg, fmt.Errorf("[CFG] Missing algod config")
 	}
 	if len(cfg.Algod.ANodes) == 0 {
-		return cfg, fmt.Errorf("Configure at least one node")
+		return cfg, fmt.Errorf("[CFG] Configure at least one node")
 	}
 	cfg.Algod.FRound = *firstRound
 	cfg.Algod.LRound = *lastRound
