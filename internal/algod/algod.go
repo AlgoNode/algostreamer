@@ -116,31 +116,33 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 	}
 	fmt.Fprintf(os.Stderr, "[INFO][ALGOD][%s] new algod client: %s\n", cfg.Id, cfg.Address)
 
-	var nodeStatus *models.NodeStatus = nil
-	utils.Backoff(ctx, func(actx context.Context) error {
-		ns, err := algodClient.Status().Do(actx)
-		if err != nil {
-			return fmt.Errorf("[!ERR][ALGOD][%s] %s\n", cfg.Id, err.Error())
-		}
-		nodeStatus = &ns
-		return nil
-	}, time.Second*10, time.Millisecond*100, time.Second*10)
-	if nodeStatus == nil {
-		return nil
-	}
-	schan <- &Status{NodeId: cfg.Id, LastCP: nodeStatus.LastCatchpoint, LastRound: uint64(nodeStatus.LastRound), LagMs: int64(nodeStatus.TimeSinceLastRound) / int64(time.Millisecond)}
-
-	var nextRound uint64 = 0
-	if start < 0 {
-		nextRound = nodeStatus.LastRound
-		fmt.Fprintf(os.Stderr, "[WARN][ALGOD][%s] Starting from last round : %d\n", cfg.Id, nodeStatus.LastRound)
-	} else {
-		nextRound = uint64(start)
-		fmt.Fprintf(os.Stderr, "[WARN][ALGOD][%s] Starting from fixed round : %d\n", cfg.Id, nextRound)
-	}
-
 	//Loop until Algoverse gets cancelled
 	go func() {
+
+		var nodeStatus *models.NodeStatus = nil
+		utils.Backoff(ctx, func(actx context.Context) error {
+			ns, err := algodClient.Status().Do(actx)
+			if err != nil {
+				return fmt.Errorf("[!ERR][ALGOD][%s] %s\n", cfg.Id, err.Error())
+			}
+			nodeStatus = &ns
+			return nil
+		}, time.Second*10, time.Millisecond*100, time.Second*10)
+		if nodeStatus == nil {
+			fmt.Fprintf(os.Stderr, "[!ERR][ALGOD][%s] Unable to start node\n", cfg.Id)
+			return
+		}
+		schan <- &Status{NodeId: cfg.Id, LastCP: nodeStatus.LastCatchpoint, LastRound: uint64(nodeStatus.LastRound), LagMs: int64(nodeStatus.TimeSinceLastRound) / int64(time.Millisecond)}
+
+		var nextRound uint64 = 0
+		if start < 0 {
+			nextRound = nodeStatus.LastRound
+			fmt.Fprintf(os.Stderr, "[WARN][ALGOD][%s] Starting from last round : %d\n", cfg.Id, nodeStatus.LastRound)
+		} else {
+			nextRound = uint64(start)
+			fmt.Fprintf(os.Stderr, "[WARN][ALGOD][%s] Starting from fixed round : %d\n", cfg.Id, nextRound)
+		}
+
 		ustop := uint64(stop)
 		for stop < 0 || nextRound <= ustop {
 			for ; nextRound <= nodeStatus.LastRound; nextRound++ {
