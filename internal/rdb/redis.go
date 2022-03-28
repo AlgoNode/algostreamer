@@ -125,7 +125,7 @@ func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Cli
 		"lag", status.LagMs,
 		"lcp", status.LastCP).Err()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[REDIS] Err: %s\n", err)
+		fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
 		return err
 	}
 	if status.LastCP != "" {
@@ -139,7 +139,7 @@ func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Cli
 				Values: map[string]interface{}{"last": status.LastCP, "time": time.Now()},
 			}).Err(); err != nil {
 				if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
-					fmt.Fprintf(os.Stderr, "[REDIS] Err: %s\n", err)
+					fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
 				}
 				return err
 			}
@@ -254,7 +254,7 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 		//I just love how easy is to get txId nowadays ;)
 		txId, err := algod.DecodeTxnId(b.Block.BlockHeader, txn)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[REDIS] Err: %s\n", err)
+			fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
 			continue
 		}
 
@@ -268,7 +268,7 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 		jTx, err := utils.EncodeJson(txw)
 
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[REDIS] Err: %s\n", err)
+			fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
 			continue
 		}
 
@@ -280,7 +280,7 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 			Values: map[string]interface{}{"json": string(jTx)},
 		}).Err(); err != nil {
 			if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
-				fmt.Fprintf(os.Stderr, "[REDIS] Err: %s\n", err)
+				fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
 			}
 		}
 
@@ -292,7 +292,7 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 	}
 	if _, err := pipe.Exec(ctx); err != nil {
 		if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
-			fmt.Fprintf(os.Stderr, "[REDIS] Err: %s\n", err)
+			fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
 		}
 	}
 }
@@ -334,7 +334,7 @@ func updateStats(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) {
 	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "[REDIS] Err: %s\n", err)
+		fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
 	}
 }
 
@@ -349,7 +349,7 @@ func commitBlock(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) (fir
 		defer wg.Done()
 		jBlock, err := utils.EncodeJson(b.Block)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error encoding block to json: %s\n", err)
+			fmt.Fprintf(os.Stderr, "[!ERR][REDIS] Error encoding block to json: %s\n", err)
 		} else {
 			if err := rc.XAdd(ctx, &redis.XAddArgs{
 				Stream: "xblock-v2-json",
@@ -359,7 +359,7 @@ func commitBlock(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) (fir
 				Values: map[string]interface{}{"json": string(jBlock), "round": uint64(b.Block.Round)},
 			}).Err(); err != nil {
 				if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
-					fmt.Fprintf(os.Stderr, "[REDIS] Err: %s\n", err)
+					fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
 				}
 				//do not bail out
 			}
@@ -403,6 +403,6 @@ func handleBlockRedis(ctx context.Context, b *algod.BlockWrap, rc *redis.Client,
 		p = "+"
 	}
 
-	fmt.Fprintf(os.Stderr, "[REDIS] Block %d@%s processed(%s) in %s (%d txn). QLen:%d\n", uint64(b.Block.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), qlen)
+	fmt.Fprintf(os.Stderr, "[INFO][REDIS] Block %d@%s processed(%s) in %s (%d txn). QLen:%d\n", uint64(b.Block.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), qlen)
 	return nil
 }
