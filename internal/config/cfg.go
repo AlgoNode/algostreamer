@@ -16,12 +16,10 @@
 package config
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 
-	"github.com/algonode/algostreamer/internal/algod"
-	"github.com/algonode/algostreamer/internal/rdb"
-	"github.com/algonode/algostreamer/internal/rego"
 	"github.com/algonode/algostreamer/internal/utils"
 )
 
@@ -30,15 +28,31 @@ var firstRound = flag.Int64("r", -1, "first round to start [-1 = latest]")
 var lastRound = flag.Int64("l", -1, "last round to read [-1 = no limit]")
 var simpleFlag = flag.Bool("s", false, "simple mode - just sending blocks in JSON format to stdout")
 
-type SinksCfg struct {
-	Redis *rdb.RedisConfig `json:"redis"`
+type SinkDef struct {
+	Name    string          `json:"name"`
+	Enabled bool            `json:"enabled"`
+	Type    string          `json:"type"`
+	Cfg     json.RawMessage `json:"cfg"`
 }
 
+type AlgoNodeConfig struct {
+	Address string `json:"address"`
+	Token   string `json:"token"`
+	Id      string `json:"id"`
+}
+
+type AlgoConfig struct {
+	ANodes []*AlgoNodeConfig `json:"nodes"`
+	Queue  int               `json:"queue"`
+	FRound int64             `json:"first"`
+	LRound int64             `json:"last"`
+}
+
+//TODO: fix stdout flag
 type SteramerConfig struct {
-	Algod  *algod.AlgoConfig `json:"algod"`
-	Sinks  SinksCfg          `json:"sinks"`
-	Rego   *rego.OpaConfig   `json:"opa"`
-	Stdout bool              `json:"stdout"`
+	Algod  *AlgoConfig        `json:"algod"`
+	Sinks  map[string]SinkDef `json:"sinks"`
+	Stdout bool               `json:"stdout"`
 }
 
 var defaultConfig = SteramerConfig{}

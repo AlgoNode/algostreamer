@@ -17,23 +17,33 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/algonode/algostreamer/internal/algod"
 	"github.com/algonode/algostreamer/internal/config"
-	"github.com/algonode/algostreamer/internal/rdb"
-	"github.com/algonode/algostreamer/internal/simple"
+	"github.com/algonode/algostreamer/internal/isink"
+	_ "github.com/algonode/algostreamer/internal/isink/redis"
+	_ "github.com/algonode/algostreamer/internal/isink/stdout"
+
+	log "github.com/sirupsen/logrus"
 )
 
+func init() {
+	log.SetFormatter(&log.JSONFormatter{})
+	log.SetOutput(os.Stderr)
+	log.SetLevel(log.DebugLevel)
+}
+
 func main() {
+
+	slog := log.StandardLogger()
 
 	//load config
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] loading config: %s\n", err)
+		log.WithError(err).Error()
 		return
 	}
 
@@ -46,43 +56,63 @@ func main() {
 		signal.Notify(cancelCh, syscall.SIGTERM, syscall.SIGINT)
 		go func() {
 			<-cancelCh
-			fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] stopping streamer.\n")
+			log.Error("stopping streamer")
 			cf()
 		}()
 	}
 
-	if !cfg.Stdout {
-		if lastBlock, err := rdb.RedisGetLastBlock(ctx, cfg.Sinks.Redis); err == nil {
-			if int64(lastBlock) > cfg.Algod.FRound {
-				cfg.Algod.FRound = int64(lastBlock)
-				fmt.Fprintf(os.Stderr, "[INFO][_MAIN] Reasuming from last redis commited block %d\n", lastBlock)
+	sinks := make([]isink.Sink, 0)
+
+	for name, def := range cfg.Sinks {
+		if !def.Enabled {
+			log.Infof("Skipping disabled sink '%s'", name)
+			continue
+		}
+		sink, err := isink.SinkByName(ctx, def.Type, &def, slog)
+		if err != nil {
+			log.WithError(err).Error("Exiting")
+			return
+		}
+		sinks = append(sinks, sink)
+		if cfg.Algod.FRound < 0 {
+			if lr, err := sink.GetLastBlock(ctx); err != nil {
+				log.Infof("LastRound for sink '%s' is %d", def.Name, lr)
+				cfg.Algod.FRound = int64(lr)
+			}
+		} else {
+			if lr, err := sink.GetLastBlock(ctx); err != nil {
+				log.Infof("LastRound for sink '%s' is %d", def.Name, lr)
+				if int64(lr) > cfg.Algod.FRound {
+					cfg.Algod.FRound = int64(lr)
+				}
 			}
 		}
+		sink.Start(ctx)
 	}
+	log.Infof("Resuming from round %d", cfg.Algod.FRound)
 
 	//spawn a block stream fetcher that never fails
-	blocks, status, err := algod.AlgoStreamer(ctx, cfg.Algod)
+	blocks, status, err := algod.AlgoStreamer(ctx, cfg.Algod, slog)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] error getting algod stream: %s\n", err)
+		log.WithError(err).Error("Exiting")
 		return
 	}
 
-	if cfg.Stdout {
-		err = simple.SimplePusher(ctx, blocks, status)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] error setting up simple mode: %s\n", err)
-			return
-		}
-	} else {
-		//spawn a redis pusher
-		err = rdb.RedisPusher(ctx, cfg.Sinks.Redis, blocks, status)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] error setting up redis: %s\n", err)
-			return
+TheLoop:
+	for {
+		select {
+		case block := <-blocks:
+			for _, s := range sinks {
+				s.ProcessBlock(ctx, block)
+			}
+		case status := <-status:
+			for _, s := range sinks {
+				s.ProcessStatus(ctx, status)
+			}
+		case <-ctx.Done():
+			break TheLoop
 		}
 	}
-
-	//Wait for the end of the Algoverse
-	<-ctx.Done()
+	log.Error("Bye!")
 
 }

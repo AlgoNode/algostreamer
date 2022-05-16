@@ -13,19 +13,26 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with algostreamer.  If not, see <https://www.gnu.org/licenses/>.
 
-package simple
+package stdout
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 
-	"github.com/algonode/algostreamer/internal/algod"
+	"github.com/algonode/algostreamer/internal/config"
+	"github.com/algonode/algostreamer/internal/isink"
 	"github.com/algorand/go-algorand/protocol"
+	"github.com/sirupsen/logrus"
 
 	"github.com/algorand/go-codec/codec"
 )
 
-func handleBlockStdOut(b *algod.BlockWrap) error {
+type StdoutConfig struct {
+}
+
+func handleBlockStdOut(b *isink.BlockWrap) error {
 	var output []byte
 	enc := codec.NewEncoderBytes(&output, protocol.JSONStrictHandle)
 	err := enc.Encode(b)
@@ -36,14 +43,13 @@ func handleBlockStdOut(b *algod.BlockWrap) error {
 	return nil
 }
 
-func SimplePusher(ctx context.Context, blocks chan *algod.BlockWrap, status chan *algod.Status) error {
-
+func (sink *StdoutSink) Start(ctx context.Context) error {
 	go func() {
 		for {
 			select {
-			case <-status:
+			case <-sink.Status:
 				//noop
-			case b := <-blocks:
+			case b := <-sink.Blocks:
 				handleBlockStdOut(b)
 			case <-ctx.Done():
 			}
@@ -51,4 +57,26 @@ func SimplePusher(ctx context.Context, blocks chan *algod.BlockWrap, status chan
 		}
 	}()
 	return nil
+}
+
+type StdoutSink struct {
+	isink.SinkCommon
+	cfg StdoutConfig
+}
+
+func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.Sink, error) {
+	var ss = &StdoutSink{}
+
+	if cfg == nil {
+		return nil, errors.New("stdout config is missing")
+	}
+
+	if err := json.Unmarshal(cfg.Cfg, &ss.cfg); err != nil {
+		return nil, fmt.Errorf("redis config paring error: %v", err)
+	}
+
+	ss.MakeDefault(log, cfg.Name)
+
+	return ss, nil
+
 }

@@ -13,30 +13,34 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with algostreamer.  If not, see <https://www.gnu.org/licenses/>.
 
-package rdb
+package redis
 
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/algonode/algostreamer/internal/algod"
+	"github.com/algonode/algostreamer/internal/config"
+	"github.com/algonode/algostreamer/internal/isink"
 	"github.com/algonode/algostreamer/internal/utils"
 	"github.com/algorand/go-algorand-sdk/types"
+	"github.com/sirupsen/logrus"
 
 	"github.com/go-redis/redis/v8"
 )
 
 const (
 	PFX_Node   = "nd:"
-	MAX_Blocks = 10_000
-	MAX_TXN    = 100_000
+	MAX_Blocks = 320
+	MAX_TXN    = 0
 )
 
 type RedisConfig struct {
@@ -46,37 +50,51 @@ type RedisConfig struct {
 	DB       int    `json:"db"`
 }
 
-func RedisPusher(ctx context.Context, cfg *RedisConfig, blocks chan *algod.BlockWrap, status chan *algod.Status) error {
+type RedisSink struct {
+	isink.SinkCommon
+	cfg RedisConfig
+	rc  *redis.Client
+}
 
-	var rc *redis.Client = nil
+func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.Sink, error) {
+
+	var rs = &RedisSink{}
 
 	if cfg == nil {
-		return fmt.Errorf("[REDIS] redis config is missing")
+		return nil, errors.New("[REDIS] redis config is missing")
 	}
-	rc = redis.NewClient(&redis.Options{
-		Addr:       cfg.Addr,
-		Password:   cfg.Password,
-		Username:   cfg.Username,
-		DB:         cfg.DB,
+
+	if err := json.Unmarshal(cfg.Cfg, &rs.cfg); err != nil {
+		return nil, fmt.Errorf("redis config parsing error: %v", err)
+	}
+
+	rs.MakeDefault(log, cfg.Name)
+
+	rs.rc = redis.NewClient(&redis.Options{
+		Addr:       rs.cfg.Addr,
+		Password:   rs.cfg.Password,
+		Username:   rs.cfg.Username,
+		DB:         rs.cfg.DB,
 		MaxRetries: 0,
 		PoolSize:   50,
 	})
 
+	return rs, nil
+
+}
+
+func (sink *RedisSink) Start(ctx context.Context) error {
 	go func() {
 		for {
 			select {
-			case s := <-status:
-				if rc != nil {
-					handleStatusUpdate(ctx, s, rc, cfg)
+			case s := <-sink.Status:
+				if sink.rc != nil {
+					handleStatusUpdate(ctx, s, sink.rc, &sink.cfg)
 				}
-			case b := <-blocks:
+			case b := <-sink.Blocks:
 				for {
-					//No OPA stuff yet - just populate REDIS streams
-					err := handleBlockRedis(ctx, b, rc, cfg, len(blocks))
+					err := sink.handleBlockRedis(ctx, b)
 					if err == nil {
-						// if len(blocks) == 0 {
-						// 	os.Exit(0)
-						// }
 						break
 					}
 					time.Sleep(time.Second)
@@ -90,42 +108,39 @@ func RedisPusher(ctx context.Context, cfg *RedisConfig, blocks chan *algod.Block
 	return nil
 }
 
-func RedisGetLastBlock(ctx context.Context, cfg *RedisConfig) (uint64, error) {
+func (sink *RedisSink) GetLastBlock(ctx context.Context) (uint64, error) {
 
-	if cfg == nil {
-		return 0, fmt.Errorf("[REDIS] redis config is missing")
-	}
 	rc := redis.NewClient(&redis.Options{
-		Addr:       cfg.Addr,
-		Password:   cfg.Password,
-		Username:   cfg.Username,
-		DB:         cfg.DB,
+		Addr:       sink.cfg.Addr,
+		Password:   sink.cfg.Password,
+		Username:   sink.cfg.Username,
+		DB:         sink.cfg.DB,
 		MaxRetries: 0,
 	})
 
 	msg, err := rc.XRevRangeN(ctx, "xblock-v2", "+", "-", 1).Result()
 	if err != nil || len(msg) < 1 {
-		return 0, fmt.Errorf("[REDIS] error getting last element \n", err)
+		return 0, fmt.Errorf("[REDIS] error getting last element %v ", err)
 	}
 	a := strings.Split(msg[0].ID, "-")
 	if len(a) < 1 {
-		return 0, fmt.Errorf("[REDIS] error getting last element - invalid block id %s\n", msg[0].ID)
+		return 0, fmt.Errorf("[REDIS] error getting last element - invalid block id %s", msg[0].ID)
 	}
 	r, err := strconv.ParseUint(a[0], 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("[REDIS] error getting last element - invalid block id %s\n", msg[0].ID)
+		return 0, fmt.Errorf("[REDIS] error getting last element - invalid block id %s", msg[0].ID)
 	}
 
 	return r, nil
 }
 
-func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Client, cfg *RedisConfig) error {
+func handleStatusUpdate(ctx context.Context, status *isink.Status, rc *redis.Client, cfg *RedisConfig) error {
 	err := rc.HSet(ctx, "NS:"+status.NodeId,
 		"round", uint64(status.LastRound),
 		"lag", status.LagMs,
 		"lcp", status.LastCP).Err()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
+		fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s", err)
 		return err
 	}
 	if status.LastCP != "" {
@@ -139,7 +154,7 @@ func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Cli
 				Values: map[string]interface{}{"last": status.LastCP, "time": time.Now()},
 			}).Err(); err != nil {
 				if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
-					fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
+					fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s", err)
 				}
 				return err
 			}
@@ -148,15 +163,7 @@ func handleStatusUpdate(ctx context.Context, status *algod.Status, rc *redis.Cli
 	return nil
 }
 
-type TxWrap struct {
-	TxId  string                  `json:"txid"`
-	Txn   *types.SignedTxnInBlock `json:"txn"`
-	Round uint64                  `json:"round"`
-	Intra int                     `json:"intra"`
-	Key   string                  `json:"xtx-v2"`
-}
-
-func getTopics(txw *TxWrap) []string {
+func getTopics(txw *isink.TxWrap) []string {
 	t := make(map[string]struct{})
 
 	addACC := func(a types.Address) {
@@ -228,7 +235,7 @@ func getTopics(txw *TxWrap) []string {
 
 	return topics
 }
-func getNotePrefix(txw *TxWrap, l int) string {
+func getNotePrefix(txw *isink.TxWrap, l int) string {
 	nb64 := base64.StdEncoding.EncodeToString(txw.Txn.Txn.Note)
 	if l > len(nb64) {
 		return nb64
@@ -236,13 +243,13 @@ func getNotePrefix(txw *TxWrap, l int) string {
 	return nb64[:l]
 }
 
-func genTopic(txw *TxWrap) string {
+func genTopic(txw *isink.TxWrap) string {
 	topics := getTopics(txw)
 	sort.Strings(topics)
 	return fmt.Sprintf("TX:%s;%s", txw.TxId, strings.Join(topics, ";"))
 }
 
-func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, publish bool) {
+func commitPaySet(ctx context.Context, b *isink.BlockWrap, rc *redis.Client, publish bool) {
 	if len(b.Block.Payset) == 0 {
 		return
 	}
@@ -254,11 +261,11 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 		//I just love how easy is to get txId nowadays ;)
 		txId, err := algod.DecodeTxnId(b.Block.BlockHeader, txn)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
+			fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s", err)
 			continue
 		}
 
-		txw := &TxWrap{
+		txw := &isink.TxWrap{
 			TxId:  txId,
 			Txn:   txn,
 			Round: uint64(b.Block.Round),
@@ -268,7 +275,7 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 		jTx, err := utils.EncodeJson(txw)
 
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
+			fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s", err)
 			continue
 		}
 
@@ -280,7 +287,7 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 			Values: map[string]interface{}{"json": string(jTx)},
 		}).Err(); err != nil {
 			if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
-				fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
+				fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s", err)
 			}
 		}
 
@@ -292,12 +299,12 @@ func commitPaySet(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, pub
 	}
 	if _, err := pipe.Exec(ctx); err != nil {
 		if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
-			fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
+			fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s", err)
 		}
 	}
 }
 
-func updateStats(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) {
+func updateStats(ctx context.Context, b *isink.BlockWrap, rc *redis.Client) {
 	if len(b.Block.Payset) == 0 {
 		return
 	}
@@ -334,75 +341,78 @@ func updateStats(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) {
 	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
+		fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s", err)
 	}
 }
 
-func commitBlock(ctx context.Context, b *algod.BlockWrap, rc *redis.Client) (first bool) {
-	var wg sync.WaitGroup
+func commitBlock(ctx context.Context, b *isink.BlockWrap, rc *redis.Client) (first bool) {
+	//var wg sync.WaitGroup
 	first = false
 
 	//Enqeue MSGPACK and JSON versions in paralell.
 	//Check if we are the first to enqueue
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		jBlock, err := utils.EncodeJson(b.Block)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[!ERR][REDIS] Error encoding block to json: %s\n", err)
-		} else {
-			if err := rc.XAdd(ctx, &redis.XAddArgs{
-				Stream: "xblock-v2-json",
-				ID:     fmt.Sprintf("%d-0", b.Block.Round),
-				MaxLen: MAX_Blocks,
-				Approx: true,
-				Values: map[string]interface{}{"json": string(jBlock), "round": uint64(b.Block.Round)},
-			}).Err(); err != nil {
-				if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
-					fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s\n", err)
+
+	/*
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			jBlock, err := utils.EncodeJson(b.Block)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[!ERR][REDIS] Error encoding block to json: %s", err)
+			} else {
+				if err := rc.XAdd(ctx, &redis.XAddArgs{
+					Stream: "xblock-v2-json",
+					ID:     fmt.Sprintf("%d-0", b.Block.Round),
+					MaxLen: MAX_Blocks,
+					Approx: true,
+					Values: map[string]interface{}{"json": string(jBlock), "round": uint64(b.Block.Round)},
+				}).Err(); err != nil {
+					if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
+						fmt.Fprintf(os.Stderr, "[!ERR][REDIS] %s", err)
+					}
+					//do not bail out
 				}
-				//do not bail out
 			}
-		}
-	}()
+		}()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := rc.XAdd(ctx, &redis.XAddArgs{
-			Stream: "xblock-v2",
-			ID:     fmt.Sprintf("%d-0", b.Block.Round),
-			MaxLen: MAX_Blocks,
-			Approx: true,
-			Values: map[string]interface{}{"msgpack": b.BlockRaw, "round": uint64(b.Block.Round)},
-		}).Err(); err == nil {
-			//We are first to commit this block to the store
-			first = true
-		}
-	}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+	*/
+	if err := rc.XAdd(ctx, &redis.XAddArgs{
+		Stream: "xblock-v2",
+		ID:     fmt.Sprintf("%d-0", b.Block.Round),
+		MaxLen: MAX_Blocks,
+		Approx: true,
+		Values: map[string]interface{}{"msgpack": b.BlockRaw, "round": uint64(b.Block.Round)},
+	}).Err(); err == nil {
+		//We are first to commit this block to the store
+		first = true
+	}
+	//	}()
 
-	wg.Wait()
+	//	wg.Wait()
 	return first
 }
 
-func handleBlockRedis(ctx context.Context, b *algod.BlockWrap, rc *redis.Client, cfg *RedisConfig, qlen int) error {
+func (sink *RedisSink) handleBlockRedis(ctx context.Context, b *isink.BlockWrap) error {
 	start := time.Now()
 
 	//Try to commit new block
 	//If successful than we should broadcast to pub/sub
-	publish := commitBlock(ctx, b, rc)
+	publish := commitBlock(ctx, b, sink.rc)
 	if publish {
 		go func() {
-			updateStats(ctx, b, rc)
+			updateStats(ctx, b, sink.rc)
 		}()
 	}
-	commitPaySet(ctx, b, rc, publish)
+	//commitPaySet(ctx, b, rc, publish)
 
 	p := "-"
 	if publish {
 		p = "+"
 	}
 
-	fmt.Fprintf(os.Stderr, "[INFO][REDIS] Block %d@%s processed(%s) in %s (%d txn). QLen:%d\n", uint64(b.Block.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), qlen)
+	sink.Log.Infof("Block %d@%s processed(%s) in %s (%d txn). QLen:%d", uint64(b.Block.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), len(sink.Blocks))
 	return nil
 }

@@ -1,0 +1,44 @@
+{
+  // archival or catchup Algorand node config
+  // setup serveral nodes to fetch from the fastest one or failover
+  "algod": {
+    "queue": 100, // buffer up to this number of blocks when processing history
+    "nodes": [
+      // {
+      //   "id": "node-u1",
+      //   "address": "http://192.168.1.210:8180",
+      //   "token": "affb379dc5fa6248b54ab4775c6d20e5e2b65de1e1f1a18064fbfaeafcd50b16"
+      // },
+      {
+        "id": "node-u2",
+        "address": "https://mainnet-api.algonode.cloud",
+        "token": "affb379dc5fa6248b54ab4775c6d20e5e2b65de1e1f1a18064fbfaeafcd50b16"
+      }
+
+    ]
+  },
+  "sinks": {
+    "stdout": {},
+    // redis server config
+    "redis": {
+      "addr": "192.168.1.210:6379",
+      "user": "",
+      "pass": "",
+      "db": 0
+    },
+    "mqtt": {},
+    "amqp91": {},
+    "SNS": {},
+    "SQS": {},
+    "PubSub": {}
+  },
+  // Open Policy Agent rules and transformations 
+  "OPA": {
+    "myid": "urtho-one",
+    "rules": {
+      //"status": "status.rego" /* rules for status updates */,
+      "block": "block.rego" /* rules for block processing */
+      //,"tx" : "tx.rego" /* rules for tx processing */
+    }
+  }
+}
