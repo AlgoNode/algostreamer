@@ -2,43 +2,50 @@
   // archival or catchup Algorand node config
   // setup serveral nodes to fetch from the fastest one or failover
   "algod": {
-    "queue": 100, // buffer up to this number of blocks when processing history
+    "queue": 10, // buffer up to this number of blocks when processing history
     "nodes": [
       {
-        "id": "private-node",
-        "address": "http://localhost:8180",
-        "token": "..."
+        "id": "public-node",
+        "address": "https://mainnet-api.algonode.cloud"
       },
       {
-        "id": "public-node",
-        "address": "https://mainnet-api.algonode.cloud",
+         "id": "node-u1",
+         "address": "http://localhost:8180",
+         "token": "..."
       }
-
     ]
   },
+  "quitOnBlockedSink" : true,  
   "sinks": {
-    // redis server config
-    "redis": {
-      "addr": "localhost:6379",
-      "user": "",
-      "pass": "",
-      "db": 0
+    //All sinks are queried for LastRound state upon startup. Lowest value wins.    
+    "stdout-1" : { 
+      "enabled" : true,
+      "type" : "stdout"
     },
-    /*
-      "mqtt": {},
-      "amqp91": {},
-      "SNS": {},
-      "SQS": {},
-      "PubSub": {}
-    */
-  },
-  // Open Policy Agent rules and transformations 
-  "OPA": {
-    "myid": "urtho-one",
-    "rules": {
-      //"status": "status.rego" /* rules for status updates */,
-      "block": "block.rego" /* rules for block processing */
-      //,"tx" : "tx.rego" /* rules for tx processing */
+    "redis-1": {
+      "enabled" : true,
+      "type" : "redis",
+      "cfg" : {
+        "addr": "localhost:6379",
+        "user": "",
+        "pass": "",
+        "db": 0
+      }        
+    },
+    "kafka-1": {
+      "enabled" : false,
+      "type" : "kafka",
+      "cfg" : {
+        "addr":"localhost:9092",
+        "user": "",
+        "pass": "",
+        "compression": true,
+        "topics": {
+          "main-blocks-msgpack" : "block:msgpack",
+          "main-blocks-json" : "block:json",
+          "main-tx" : "tx:idx-json"
+        }
+      }
     }
-  }
+  }  
 }
