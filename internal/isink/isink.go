@@ -44,38 +44,71 @@ type Sink interface {
 	Start(context.Context) error
 	MakeDefault(*logrus.Logger, string)
 	GetLastBlock(context.Context) (uint64, error)
-	ProcessBlock(context.Context, *BlockWrap) error
-	ProcessStatus(context.Context, *Status) error
-	ProcessTx(context.Context, *TxWrap) error
+	ProcessBlock(context.Context, *BlockWrap, bool) error
+	ProcessStatus(context.Context, *Status, bool) error
+	ProcessTx(context.Context, *TxWrap, bool) error
 }
 
-func (sink *SinkCommon) MakeDefault(log *logrus.Logger, sinkName string) {
+func (sink *SinkCommon) MakeDefault(olog *logrus.Logger, sinkName string) {
 	sink.Blocks = make(chan *BlockWrap, 1000)
 	sink.Status = make(chan *Status, 1000)
 	sink.Tx = make(chan *TxWrap, 10000)
-	sink.Log = log.WithFields(logrus.Fields{"sink": sinkName})
+	sink.Log = olog.WithFields(logrus.Fields{"sink": sinkName})
 }
 
-func (sink *SinkCommon) ProcessBlock(ctx context.Context, block *BlockWrap) error {
+func (sink *SinkCommon) ProcessBlock(ctx context.Context, block *BlockWrap, blocking bool) error {
 	select {
 	case sink.Blocks <- block:
 	case <-ctx.Done():
+	default:
+		if !blocking {
+			err := errors.New("would block")
+			sink.Log.WithError(err).Error()
+			return err
+		}
+		sink.Log.Error("Sink is blocked")
+		select {
+		case sink.Blocks <- block:
+		case <-ctx.Done():
+		}
 	}
 	return nil
 }
 
-func (sink *SinkCommon) ProcessStatus(ctx context.Context, status *Status) error {
+func (sink *SinkCommon) ProcessStatus(ctx context.Context, status *Status, blocking bool) error {
 	select {
 	case sink.Status <- status:
 	case <-ctx.Done():
+	default:
+		if !blocking {
+			err := errors.New("would block")
+			sink.Log.WithError(err).Error()
+			return err
+		}
+		sink.Log.Error("Sink is blocked")
+		select {
+		case sink.Status <- status:
+		case <-ctx.Done():
+		}
 	}
 	return nil
 }
 
-func (sink *SinkCommon) ProcessTx(ctx context.Context, tx *TxWrap) error {
+func (sink *SinkCommon) ProcessTx(ctx context.Context, tx *TxWrap, blocking bool) error {
 	select {
 	case sink.Tx <- tx:
 	case <-ctx.Done():
+	default:
+		if !blocking {
+			err := errors.New("would block")
+			sink.Log.WithError(err).Error()
+			return err
+		}
+		sink.Log.Error("Sink is blocked")
+		select {
+		case sink.Tx <- tx:
+		case <-ctx.Done():
+		}
 	}
 	return nil
 }

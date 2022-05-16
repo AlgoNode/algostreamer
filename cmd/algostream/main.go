@@ -64,6 +64,7 @@ func main() {
 	sinks := make([]isink.Sink, 0)
 
 	for name, def := range cfg.Sinks {
+		def.Name = name
 		if !def.Enabled {
 			log.Infof("Skipping disabled sink '%s'", name)
 			continue
@@ -76,18 +77,18 @@ func main() {
 		sinks = append(sinks, sink)
 		if cfg.Algod.FRound < 0 {
 			if lr, err := sink.GetLastBlock(ctx); err == nil {
-				log.Infof("LastRound for sink '%s' is %d", def.Name, lr)
+				log.Infof("LastRound for sink '%s' is %d", name, lr)
 				cfg.Algod.FRound = int64(lr)
 			}
 		} else {
 			if lr, err := sink.GetLastBlock(ctx); err == nil {
-				log.Infof("LastRound for sink '%s' is %d", def.Name, lr)
+				log.Infof("LastRound for sink '%s' is %d", name, lr)
 				if int64(lr) > cfg.Algod.FRound {
 					cfg.Algod.FRound = int64(lr)
 				}
 			}
 		}
-		sink.Start(ctx)
+		//		sink.Start(ctx)
 	}
 	log.Infof("Resuming from round %d", cfg.Algod.FRound)
 
@@ -103,11 +104,17 @@ TheLoop:
 		select {
 		case block := <-blocks:
 			for _, s := range sinks {
-				s.ProcessBlock(ctx, block)
+				if err := s.ProcessBlock(ctx, block, !cfg.NoBlock); err != nil {
+					log.WithError(err).Error("Exiting")
+					break TheLoop
+				}
 			}
 		case status := <-status:
 			for _, s := range sinks {
-				s.ProcessStatus(ctx, status)
+				if err := s.ProcessStatus(ctx, status, !cfg.NoBlock); err != nil {
+					log.WithError(err).Error("Exiting")
+					break TheLoop
+				}
 			}
 		case <-ctx.Done():
 			break TheLoop

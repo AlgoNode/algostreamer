@@ -29,7 +29,7 @@ var lastRound = flag.Int64("l", -1, "last round to read [-1 = no limit]")
 var simpleFlag = flag.Bool("s", false, "simple mode - just sending blocks in JSON format to stdout")
 
 type SinkDef struct {
-	Name    string          `json:"name"`
+	Name    string          `json:"-"`
 	Enabled bool            `json:"enabled"`
 	Type    string          `json:"type"`
 	Cfg     json.RawMessage `json:"cfg"`
@@ -50,9 +50,10 @@ type AlgoConfig struct {
 
 //TODO: fix stdout flag
 type SteramerConfig struct {
-	Algod  *AlgoConfig        `json:"algod"`
-	Sinks  map[string]SinkDef `json:"sinks"`
-	Stdout bool               `json:"stdout"`
+	Algod   *AlgoConfig        `json:"algod"`
+	NoBlock bool               `json:"quitOnBlockedSink"`
+	Sinks   map[string]SinkDef `json:"sinks"`
+	Stdout  bool               `json:"stdout"`
 }
 
 var defaultConfig = SteramerConfig{}
