@@ -75,12 +75,12 @@ func main() {
 		}
 		sinks = append(sinks, sink)
 		if cfg.Algod.FRound < 0 {
-			if lr, err := sink.GetLastBlock(ctx); err != nil {
+			if lr, err := sink.GetLastBlock(ctx); err == nil {
 				log.Infof("LastRound for sink '%s' is %d", def.Name, lr)
 				cfg.Algod.FRound = int64(lr)
 			}
 		} else {
-			if lr, err := sink.GetLastBlock(ctx); err != nil {
+			if lr, err := sink.GetLastBlock(ctx); err == nil {
 				log.Infof("LastRound for sink '%s' is %d", def.Name, lr)
 				if int64(lr) > cfg.Algod.FRound {
 					cfg.Algod.FRound = int64(lr)

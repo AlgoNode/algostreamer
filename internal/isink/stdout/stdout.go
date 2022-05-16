@@ -17,7 +17,6 @@ package stdout
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -71,9 +70,9 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 		return nil, errors.New("stdout config is missing")
 	}
 
-	if err := json.Unmarshal(cfg.Cfg, &ss.cfg); err != nil {
-		return nil, fmt.Errorf("redis config paring error: %v", err)
-	}
+	// if err := json.Unmarshal(cfg.Cfg, &ss.cfg); err != nil {
+	// 	return nil, fmt.Errorf("stdout config paring error: %v", err)
+	// }
 
 	ss.MakeDefault(log, cfg.Name)
 
