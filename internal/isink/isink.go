@@ -50,8 +50,8 @@ type Sink interface {
 }
 
 func (sink *SinkCommon) MakeDefault(olog *logrus.Logger, sinkName string) {
-	sink.Blocks = make(chan *BlockWrap, 1000)
-	sink.Status = make(chan *Status, 1000)
+	sink.Blocks = make(chan *BlockWrap, 100)
+	sink.Status = make(chan *Status, 100)
 	sink.Tx = make(chan *TxWrap, 10000)
 	sink.Log = olog.WithFields(logrus.Fields{"sink": sinkName})
 }

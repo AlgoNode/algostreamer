@@ -24,6 +24,7 @@ import (
 	"github.com/algonode/algostreamer/internal/algod"
 	"github.com/algonode/algostreamer/internal/config"
 	"github.com/algonode/algostreamer/internal/isink"
+	_ "github.com/algonode/algostreamer/internal/isink/kafka"
 	_ "github.com/algonode/algostreamer/internal/isink/redis"
 	_ "github.com/algonode/algostreamer/internal/isink/stdout"
 
@@ -88,7 +89,7 @@ func main() {
 				}
 			}
 		}
-		//		sink.Start(ctx)
+		sink.Start(ctx)
 	}
 	log.Infof("Resuming from round %d", cfg.Algod.FRound)
 

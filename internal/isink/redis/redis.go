@@ -61,7 +61,7 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 	var rs = &RedisSink{}
 
 	if cfg == nil {
-		return nil, errors.New("[REDIS] redis config is missing")
+		return nil, errors.New("redis config is missing")
 	}
 
 	if err := json.Unmarshal(cfg.Cfg, &rs.cfg); err != nil {
