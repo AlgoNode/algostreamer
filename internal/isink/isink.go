@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/algorand/go-algorand-sdk/types"
+	"github.com/algorand/go-algorand/data/bookkeeping"
 	"github.com/sirupsen/logrus"
 )
 
@@ -17,12 +18,12 @@ type Status struct {
 }
 
 type BlockWrap struct {
-	Block         *types.Block `json: "block"`
-	BlockRaw      []byte       `json:"-"`
+	Block         *bookkeeping.Block
+	BlockRaw      []byte
 	BlockJsonNode string
 	BlockJsonIDX  string
-	Src           string    `json:"src"`
-	Ts            time.Time `json:"ts"`
+	Src           string
+	Ts            time.Time
 }
 
 type TxWrap struct {

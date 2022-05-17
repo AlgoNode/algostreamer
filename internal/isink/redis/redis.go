@@ -27,10 +27,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/algonode/algostreamer/internal/algod"
 	"github.com/algonode/algostreamer/internal/config"
 	"github.com/algonode/algostreamer/internal/isink"
-	"github.com/algonode/algostreamer/internal/utils"
 	"github.com/algorand/go-algorand-sdk/types"
 	"github.com/sirupsen/logrus"
 
@@ -249,6 +247,7 @@ func genTopic(txw *isink.TxWrap) string {
 	return fmt.Sprintf("TX:%s;%s", txw.TxId, strings.Join(topics, ";"))
 }
 
+/*
 func commitPaySet(ctx context.Context, b *isink.BlockWrap, rc *redis.Client, publish bool) {
 	if len(b.Block.Payset) == 0 {
 		return
@@ -303,6 +302,7 @@ func commitPaySet(ctx context.Context, b *isink.BlockWrap, rc *redis.Client, pub
 		}
 	}
 }
+*/
 
 func updateStats(ctx context.Context, b *isink.BlockWrap, rc *redis.Client) {
 	if len(b.Block.Payset) == 0 {
@@ -384,7 +384,7 @@ func commitBlock(ctx context.Context, b *isink.BlockWrap, rc *redis.Client) (fir
 		ID:     fmt.Sprintf("%d-0", b.Block.Round),
 		MaxLen: MAX_Blocks,
 		Approx: true,
-		Values: map[string]interface{}{"msgpack": b.BlockRaw, "round": uint64(b.Block.Round)},
+		Values: map[string]interface{}{"msgpack": b.BlockRaw, "round": uint64(b.Block.BlockHeader.Round)},
 	}).Err(); err == nil {
 		//We are first to commit this block to the store
 		first = true
@@ -413,6 +413,6 @@ func (sink *RedisSink) handleBlockRedis(ctx context.Context, b *isink.BlockWrap)
 		p = "+"
 	}
 
-	sink.Log.Infof("Block %d@%s processed(%s) in %s (%d txn). QLen:%d", uint64(b.Block.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), len(sink.Blocks))
+	sink.Log.Infof("Block %d@%s processed(%s) in %s (%d txn). QLen:%d", uint64(b.Block.BlockHeader.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), len(sink.Blocks))
 	return nil
 }

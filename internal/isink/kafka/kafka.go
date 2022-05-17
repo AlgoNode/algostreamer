@@ -61,12 +61,12 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 	ks.MakeDefault(log, cfg.Name)
 
 	ks.kc = &kafka.Writer{
-		Addr:         kafka.TCP(ks.cfg.Addr),
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		MaxAttempts:  1000000,
-		BatchSize:    1,
-		//	Compression:            kafka.Lz4,
+		Addr:                   kafka.TCP(ks.cfg.Addr),
+		ReadTimeout:            10 * time.Second,
+		WriteTimeout:           10 * time.Second,
+		MaxAttempts:            1000000,
+		BatchSize:              1,
+		Compression:            kafka.Lz4,
 		ErrorLogger:            ks.Log,
 		AllowAutoTopicCreation: true,
 	}
@@ -101,7 +101,7 @@ func (sink *KafkaSink) Start(ctx context.Context) error {
 		for {
 			select {
 			case <-sink.Status:
-
+				//ignore status updates for now
 			case b := <-sink.Blocks:
 				for {
 					err := sink.handleBlockkafka(ctx, b)
@@ -127,13 +127,13 @@ func (sink *KafkaSink) handleBlockkafka(ctx context.Context, b *isink.BlockWrap)
 	start := time.Now()
 
 	//sink.kc.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	err := sink.kc.WriteMessages(ctx, kafka.Message{Partition: sink.cfg.Partition, Topic: sink.cfg.Topic, Key: []byte(fmt.Sprintf("%d", b.Block.Round)), Value: []byte(b.BlockJsonIDX)})
+	err := sink.kc.WriteMessages(ctx, kafka.Message{Partition: sink.cfg.Partition, Topic: sink.cfg.Topic, Key: []byte(fmt.Sprintf("%d", b.Block.BlockHeader.Round)), Value: []byte(b.BlockJsonIDX)})
 	if err != nil {
 		sink.Log.WithError(err).Error("writing message")
 		return err
 	}
 
 	p := "+"
-	sink.Log.Infof("Block %d@%s processed(%s) in %s (%d txn). QLen:%d", uint64(b.Block.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), len(sink.Blocks))
+	sink.Log.Infof("Block %d@%s processed(%s) in %s (%d txn). QLen:%d", uint64(b.Block.BlockHeader.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), len(sink.Blocks))
 	return nil
 }

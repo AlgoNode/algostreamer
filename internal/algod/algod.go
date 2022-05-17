@@ -17,6 +17,7 @@ package algod
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sync/atomic"
 	"time"
@@ -26,7 +27,8 @@ import (
 	"github.com/algonode/algostreamer/internal/utils"
 	"github.com/algorand/go-algorand-sdk/client/v2/algod"
 	"github.com/algorand/go-algorand-sdk/client/v2/common/models"
-	"github.com/algorand/go-algorand-sdk/encoding/msgpack"
+	"github.com/algorand/go-algorand/protocol"
+	"github.com/algorand/go-algorand/rpcs"
 	"github.com/sirupsen/logrus"
 )
 
@@ -58,14 +60,15 @@ func AlgoStreamer(ctx context.Context, acfg *config.AlgoConfig, log *logrus.Logg
 		for {
 			select {
 			case bw := <-bchan:
-				if uint64(bw.Block.Round) > maxBlock || maxBlock == math.MaxUint64 {
+				round := uint64(bw.Block.BlockHeader.Round)
+				if round > maxBlock || maxBlock == math.MaxUint64 {
 					bestbchan <- bw
-					maxBlock = uint64(bw.Block.Round)
+					maxBlock = round
 					atomic.StoreUint64(&globalMaxBlock, maxBlock)
 					maxTs = bw.Ts
 					maxLeader = bw.Src
 				} else {
-					if maxBlock == uint64(bw.Block.Round) {
+					if maxBlock == round {
 						log.Infof("Block from %s is %v behind %s", bw.Src, bw.Ts.Sub(maxTs), maxLeader)
 					}
 				}
@@ -75,6 +78,38 @@ func AlgoStreamer(ctx context.Context, acfg *config.AlgoConfig, log *logrus.Logg
 	}()
 
 	return bestbchan, schan, nil
+}
+
+func makeBlockWrap(rawBlock []byte, src string) (*isink.BlockWrap, error) {
+	block := new(rpcs.EncodedBlockCert)
+	err := protocol.Decode(rawBlock, block)
+	if err != nil {
+		return nil, fmt.Errorf("enqueueBlock() decode err: %w", err)
+	}
+
+	jBlock, err := utils.EncodeJson(block.Block)
+	if err != nil {
+		return nil, err
+	}
+
+	blockIdx, err := utils.GenerateBlock(&block.Block)
+	if err != nil {
+		return nil, err
+	}
+
+	idxJBlock, err := utils.EncodeJson(blockIdx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &isink.BlockWrap{
+		Block:         &block.Block,
+		BlockRaw:      rawBlock,
+		BlockJsonNode: string(jBlock),
+		BlockJsonIDX:  string(idxJBlock),
+		Ts:            time.Now(),
+		Src:           src,
+	}, nil
 }
 
 func algodStreamNode(ctx context.Context, acfg *config.AlgoConfig, olog *logrus.Logger, idx int, bchan chan *isink.BlockWrap, schan chan *isink.Status, start int64, stop int64) error {
@@ -130,21 +165,13 @@ func algodStreamNode(ctx context.Context, acfg *config.AlgoConfig, olog *logrus.
 					if err != nil {
 						return err
 					}
-					var response models.BlockResponse
-					msgpack.CodecHandle.ErrorIfNoField = false
-					if err = msgpack.Decode(rawBlock, &response); err != nil {
+					bw, err := makeBlockWrap(rawBlock, cfg.Id)
+					if err != nil {
 						return err
 					}
-					block := response.Block
-
 					//log.Infof("got block %d, queue %d", block.Round, len(bchan))
 					select {
-					case bchan <- &isink.BlockWrap{
-						Block:    &block,
-						BlockRaw: rawBlock,
-						Ts:       time.Now(),
-						Src:      cfg.Id,
-					}:
+					case bchan <- bw:
 					case <-ctx.Done():
 					}
 					return ctx.Err()
