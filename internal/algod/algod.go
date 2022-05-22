@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os"
 	"sync/atomic"
 	"time"
 
@@ -102,8 +101,6 @@ func makeBlockWrap(rawBlock []byte, src string) (*isink.BlockWrap, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(string(idxJBlock))
-	os.Exit(0)
 
 	return &isink.BlockWrap{
 		Block:         &block.Block,
