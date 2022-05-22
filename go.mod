@@ -1,9 +1,9 @@
 module github.com/algonode/algostreamer
 
-go 1.18
+go 1.17
 
 require (
-	github.com/algorand/go-algorand v0.0.0-20220323144801-17c0feef002f
+	github.com/algorand/go-algorand v0.0.0-20220516170843-91095fa6bdcc
 	github.com/algorand/go-algorand-sdk v1.15.0
 	github.com/algorand/go-codec/codec v1.1.8
 	github.com/algorand/indexer v0.0.0-20220514143635-f26fca19fafe
@@ -28,7 +28,6 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/getkin/kin-openapi v0.22.0 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
-	github.com/golang/snappy v0.0.1 // indirect
 	github.com/google/go-querystring v1.0.0 // indirect
 	github.com/gorilla/mux v1.7.4 // indirect
 	github.com/jmespath/go-jmespath v0.3.0 // indirect
@@ -43,11 +42,9 @@ require (
 	github.com/miekg/dns v1.1.27 // indirect
 	github.com/olivere/elastic v6.2.14+incompatible // indirect
 	github.com/petermattis/goid v0.0.0-20180202154549-b0b1615b78e5 // indirect
-	github.com/pierrec/lz4 v2.0.5+incompatible // indirect
 	github.com/pierrec/lz4/v4 v4.1.14 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/satori/go.uuid v1.2.0 // indirect
 	github.com/stretchr/testify v1.7.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.1 // indirect

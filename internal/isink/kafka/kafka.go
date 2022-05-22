@@ -127,7 +127,12 @@ func (sink *KafkaSink) handleBlockkafka(ctx context.Context, b *isink.BlockWrap)
 	start := time.Now()
 
 	//sink.kc.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	err := sink.kc.WriteMessages(ctx, kafka.Message{Partition: sink.cfg.Partition, Topic: sink.cfg.Topic, Key: []byte(fmt.Sprintf("%d", b.Block.BlockHeader.Round)), Value: []byte(b.BlockJsonIDX)})
+	err := sink.kc.WriteMessages(ctx, kafka.Message{
+		Offset:    int64(b.Block.BlockHeader.Round),
+		Partition: sink.cfg.Partition,
+		Topic:     sink.cfg.Topic,
+		Key:       []byte(fmt.Sprintf("%d", b.Block.BlockHeader.Round)),
+		Value:     []byte(b.BlockJsonIDX)})
 	if err != nil {
 		sink.Log.WithError(err).Error("writing message")
 		return err

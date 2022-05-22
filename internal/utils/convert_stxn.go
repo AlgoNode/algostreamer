@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/algorand/go-algorand/crypto"
 	"github.com/algorand/go-algorand/data/basics"
 	"github.com/algorand/go-algorand/data/bookkeeping"
 	"github.com/algorand/go-algorand/data/transactions"
@@ -65,7 +66,7 @@ type rowData struct {
 	AssetCloseAmount uint64
 }
 
-func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, extra rowData) (generated.Transaction, error) {
+func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint, extra rowData) (generated.Transaction, uint, error) {
 	var payment *generated.TransactionPayment
 	var keyreg *generated.TransactionKeyreg
 	var assetConfig *generated.TransactionAssetConfig
@@ -222,7 +223,7 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, extra rowD
 		}
 		logs = &l
 	}
-
+	intra++
 	var inners *[]generated.Transaction
 	if len(stxn.ApplyData.EvalDelta.InnerTxns) > 0 {
 		itxns := make([]generated.Transaction, 0, len(stxn.ApplyData.EvalDelta.InnerTxns))
@@ -237,9 +238,10 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, extra rowD
 			}
 			extra2.AssetCloseAmount = t.ApplyData.AssetClosingAmount
 
-			itxn, err := signedTxnWithAdToTransaction(&t, extra2)
+			itxn, nextintra, err := signedTxnWithAdToTransaction(&t, intra, extra2)
+			intra = nextintra
 			if err != nil {
-				return generated.Transaction{}, err
+				return generated.Transaction{}, intra, err
 			}
 			itxns = append(itxns, itxn)
 		}
@@ -292,7 +294,7 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, extra rowD
 		}
 	}
 
-	return txn, nil
+	return txn, intra, nil
 }
 
 func transactionAssetID(stxnad *transactions.SignedTxnWithAD, intra uint, block *bookkeeping.Block) (uint64, error) {
@@ -332,4 +334,54 @@ func transactionAssetID(stxnad *transactions.SignedTxnWithAD, intra uint, block 
 	}
 
 	return assetid, nil
+}
+
+func sigToTransactionSig(sig crypto.Signature) *[]byte {
+	if sig == (crypto.Signature{}) {
+		return nil
+	}
+
+	tsig := sig[:]
+	return &tsig
+}
+
+func msigToTransactionMsig(msig crypto.MultisigSig) *generated.TransactionSignatureMultisig {
+	if msig.Blank() {
+		return nil
+	}
+
+	subsigs := make([]generated.TransactionSignatureMultisigSubsignature, 0)
+	for _, subsig := range msig.Subsigs {
+		subsigs = append(subsigs, generated.TransactionSignatureMultisigSubsignature{
+			PublicKey: byteSliceOmitZeroPtr(subsig.Key[:]),
+			Signature: sigToTransactionSig(subsig.Sig),
+		})
+	}
+
+	ret := generated.TransactionSignatureMultisig{
+		Subsignature: &subsigs,
+		Threshold:    uint64Ptr(uint64(msig.Threshold)),
+		Version:      uint64Ptr(uint64(msig.Version)),
+	}
+	return &ret
+}
+
+func lsigToTransactionLsig(lsig transactions.LogicSig) *generated.TransactionSignatureLogicsig {
+	if lsig.Blank() {
+		return nil
+	}
+
+	args := make([]string, 0)
+	for _, arg := range lsig.Args {
+		args = append(args, base64.StdEncoding.EncodeToString(arg))
+	}
+
+	ret := generated.TransactionSignatureLogicsig{
+		Args:              &args,
+		Logic:             lsig.Logic,
+		MultisigSignature: msigToTransactionMsig(lsig.Msig),
+		Signature:         sigToTransactionSig(lsig.Sig),
+	}
+
+	return &ret
 }

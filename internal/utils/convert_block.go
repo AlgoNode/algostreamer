@@ -8,8 +8,10 @@ import (
 	"github.com/algorand/indexer/api/generated/v2"
 )
 
-func GenerateBlock(block *bookkeeping.Block) (*generated.Block, error) {
-	var ret generated.Block
+type BlockResponse generated.Block
+
+func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
+	var ret BlockResponse
 	blockHeader := block.BlockHeader
 
 	rewards := generated.BlockRewards{
@@ -35,7 +37,7 @@ func GenerateBlock(block *bookkeeping.Block) (*generated.Block, error) {
 		UpgradePropose: strPtr(string(blockHeader.UpgradePropose)),
 	}
 
-	ret = generated.Block{
+	ret = BlockResponse{
 		GenesisHash:       blockHeader.GenesisHash[:],
 		GenesisId:         blockHeader.GenesisID,
 		PreviousBlockHash: blockHeader.Branch[:],
@@ -44,23 +46,25 @@ func GenerateBlock(block *bookkeeping.Block) (*generated.Block, error) {
 		Seed:              blockHeader.Seed[:],
 		Timestamp:         uint64(blockHeader.TimeStamp),
 		Transactions:      nil,
-		TransactionsRoot:  blockHeader.TxnRoot[:],
+		TransactionsRoot:  blockHeader.TxnCommitments.NativeSha512_256Commitment[:],
 		TxnCounter:        uint64Ptr(blockHeader.TxnCounter),
 		UpgradeState:      &upgradeState,
 		UpgradeVote:       &upgradeVote,
 	}
 
-	results := make([]generated.Transaction, 0)
-	if err := genTransactions(block, block.Payset, results); err != nil {
+	txn, err := genTransactions(block, block.Payset)
+	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("Block %d, txns %d\n", block.BlockHeader.Round, len(txn))
 
-	ret.Transactions = &results
+	ret.Transactions = &txn
 	return &ret, nil
 }
 
-func genTransactions(block *bookkeeping.Block, modifiedTxns []transactions.SignedTxnInBlock, results []generated.Transaction) error {
+func genTransactions(block *bookkeeping.Block, modifiedTxns []transactions.SignedTxnInBlock) ([]generated.Transaction, error) {
 	intra := uint(0)
+	results := make([]generated.Transaction, 0)
 	for idx, stib := range modifiedTxns {
 		// Do not include inner transactions.
 		// if txrow.RootTxn != nil {
@@ -73,7 +77,7 @@ func genTransactions(block *bookkeeping.Block, modifiedTxns []transactions.Signe
 		// correct transaction hash.
 		stxnad.SignedTxn, stxnad.ApplyData, err = block.BlockHeader.DecodeSignedTxn(stib)
 		if err != nil {
-			return fmt.Errorf("decode signed txn err: %w", err)
+			return nil, fmt.Errorf("decode signed txn err: %w", err)
 		}
 
 		// txn := &stxnad.Txn
@@ -83,7 +87,7 @@ func genTransactions(block *bookkeeping.Block, modifiedTxns []transactions.Signe
 		// }
 		assetid, err := transactionAssetID(&stxnad, intra, block)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		// id := txn.ID().String()
 
@@ -95,14 +99,24 @@ func genTransactions(block *bookkeeping.Block, modifiedTxns []transactions.Signe
 			AssetCloseAmount: block.Payset[idx].ApplyData.AssetClosingAmount,
 		}
 
-		tx, err := signedTxnWithAdToTransaction(&stxnad, extra)
-		if err != nil {
-			return err
+		sig := generated.TransactionSignature{
+			Logicsig: lsigToTransactionLsig(stxnad.Lsig),
+			Multisig: msigToTransactionMsig(stxnad.Msig),
+			Sig:      sigToTransactionSig(stxnad.Sig),
 		}
+
+		tx, nextintra, err := signedTxnWithAdToTransaction(&stxnad, intra, extra)
+		intra = nextintra
+		if err != nil {
+			return nil, err
+		}
+
+		txid := stxnad.Txn.ID().String()
+		tx.Id = &txid
+		tx.Signature = &sig
 
 		results = append(results, tx)
 
-		//TODO inners
 	}
-	return nil
+	return results, nil
 }

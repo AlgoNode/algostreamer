@@ -22,8 +22,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/algorand/go-algorand/protocol"
-	"github.com/algorand/go-codec/codec"
 	"github.com/tidwall/jsonc"
 )
 
@@ -69,10 +67,8 @@ func LoadJSONCFromFile(filename string, object interface{}) (err error) {
 }
 
 func EncodeJson(obj interface{}) ([]byte, error) {
-	var output []byte
-	enc := codec.NewEncoderBytes(&output, protocol.JSONStrictHandle)
-
-	err := enc.Encode(obj)
+	//	enc := codec.NewEncoderBytes(&output, protocol.JSONHandle)
+	output, err := json.Marshal(obj)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode object: %v", err)
 	}
