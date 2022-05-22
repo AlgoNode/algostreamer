@@ -25,6 +25,7 @@ import (
 	"github.com/algonode/algostreamer/internal/config"
 	"github.com/algonode/algostreamer/internal/isink"
 	"github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go/gzip"
 	"github.com/sirupsen/logrus"
 )
 
@@ -79,9 +80,9 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 	// 	dialer.SASLMechanism = mechanism
 	// }
 
-	// if ks.cfg.Compression {
-	// 	ks.cc = snappy.NewCompressionCodec()
-	// }
+	if ks.cfg.Compression {
+		ks.cc = gzip.NewCompressionCodec()
+	}
 
 	// kc, err := dialer.DialContext(ctx, "tcp", ks.cfg.Addr)
 
@@ -125,10 +126,9 @@ func (sink *KafkaSink) GetLastBlock(ctx context.Context) (uint64, error) {
 
 func (sink *KafkaSink) handleBlockkafka(ctx context.Context, b *isink.BlockWrap) error {
 	start := time.Now()
-
+	sink.Log.Infof("Block %d@%s, %d txn, size: %dkB QLen:%d", uint64(b.Block.BlockHeader.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), len(b.Block.Payset), len(b.BlockJsonIDX)/1024, (sink.Blocks))
 	//sink.kc.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	err := sink.kc.WriteMessages(ctx, kafka.Message{
-		Offset:    int64(b.Block.BlockHeader.Round),
 		Partition: sink.cfg.Partition,
 		Topic:     sink.cfg.Topic,
 		Key:       []byte(fmt.Sprintf("%d", b.Block.BlockHeader.Round)),

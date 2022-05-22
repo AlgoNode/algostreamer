@@ -15,36 +15,35 @@
       }
     ]
   },
-  "quitOnBlockedSink" : true,  
+  "quitOnBlockedSink" : false,  
   "sinks": {
     //All sinks are queried for LastRound state upon startup. Lowest value wins.    
     "stdout-1" : { 
-      "enabled" : true,
+      "enabled" : false,
       "type" : "stdout"
     },
     "redis-1": {
       "enabled" : true,
       "type" : "redis",
       "cfg" : {
-        "addr": "localhost:6379",
+        "addr": "192.168.1.210:6379",
         "user": "",
         "pass": "",
         "db": 0
       }        
     },
-    "kafka-1": {
-      "enabled" : false,
+    "kafka-blk-idx": {
+      "enabled" : true,
       "type" : "kafka",
       "cfg" : {
-        "addr":"localhost:9092",
+        "addr":"192.168.1.210",
         "user": "",
         "pass": "",
+        "client": "algostrmr",
         "compression": true,
-        "topics": {
-          "main-blocks-msgpack" : "block:msgpack",
-          "main-blocks-json" : "block:json",
-          "main-tx" : "tx:idx-json"
-        }
+        "topic": "blk-idx",
+        "partition" : 0,
+        "src":"block:json:idx"
       }
     }
   }  
