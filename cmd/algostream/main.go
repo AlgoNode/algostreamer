@@ -24,8 +24,7 @@ import (
 	"github.com/algonode/algostreamer/internal/algod"
 	"github.com/algonode/algostreamer/internal/config"
 	"github.com/algonode/algostreamer/internal/isink"
-	_ "github.com/algonode/algostreamer/internal/isink/kafka"
-	_ "github.com/algonode/algostreamer/internal/isink/redis"
+	_ "github.com/algonode/algostreamer/internal/isink/rabbitmq"
 	_ "github.com/algonode/algostreamer/internal/isink/stdout"
 
 	log "github.com/sirupsen/logrus"
