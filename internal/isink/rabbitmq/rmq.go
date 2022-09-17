@@ -32,11 +32,11 @@ import (
 )
 
 type RmqConfig struct {
-	Urls       []string `json:"addr"`
-	ClientName string   `json:"client-name"`
-	BlockStr   string   `json:"block-stream"`
-	TxStr      string   `json:"tx-stream"`
-	StatusStr  string   `json:"status-stream"`
+	Urls       []string `json:"urls"`
+	ClientName string   `json:"client"`
+	BlockStr   string   `json:"public.str.block"`
+	TxStr      string   `json:"public.hdr.tx"`
+	StatusStr  string   `json:"public.str.status"`
 }
 
 type RmqSink struct {
@@ -90,6 +90,11 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 		return nil, err
 	}
 
+	if err = rs.env.DeclareStream(rs.cfg.StatusStr,
+		stream.NewStreamOptions().SetMaxAge(time.Hour*24*14)); err != nil {
+		return nil, err
+	}
+
 	rs.status, err = NewHAProducer(
 		rs.env,
 		rs.cfg.StatusStr,
@@ -98,6 +103,11 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 		handlePublishConfirm)
 
 	if err != nil {
+		return nil, err
+	}
+
+	if err = rs.env.DeclareStream(rs.cfg.BlockStr,
+		stream.NewStreamOptions().SetMaxAge(time.Hour*24*14)); err != nil {
 		return nil, err
 	}
 
