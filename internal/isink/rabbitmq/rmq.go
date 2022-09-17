@@ -17,19 +17,14 @@ package rabbitmq
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"sort"
-	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/algonode/algostreamer/internal/config"
 	"github.com/algonode/algostreamer/internal/isink"
-	"github.com/algorand/go-algorand-sdk/types"
 	"github.com/sirupsen/logrus"
 
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/amqp"
@@ -39,8 +34,8 @@ import (
 type RmqConfig struct {
 	Urls       []string `json:"addr"`
 	ClientName string   `json:"client-name"`
-	BlockStr   string   `json:"block-stream`
-	TxStr      string   `json:"tx-stream`
+	BlockStr   string   `json:"block-stream"`
+	TxStr      string   `json:"tx-stream"`
 	StatusStr  string   `json:"status-stream"`
 }
 
@@ -55,27 +50,27 @@ type RmqSink struct {
 var counter int32 = 0
 var fail int32 = 0
 
-func handlePublishConfirm(messageStatus []*stream.ConfirmationStatus) {
-	go func() {
-		for _, message := range messageStatus {
-			if message.IsConfirmed() {
-
-				if atomic.AddInt32(&counter, 1)%20000 == 0 {
-					fmt.Printf("Confirmed %d messages\n", atomic.LoadInt32(&counter))
-				}
-			} else {
-				if atomic.AddInt32(&fail, 1)%20000 == 0 {
-					fmt.Printf("NOT Confirmed %d messages\n", atomic.LoadInt32(&fail))
-				}
-			}
-
-		}
-	}()
-}
-
 func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.Sink, error) {
 
 	var rs = &RmqSink{}
+
+	handlePublishConfirm := func(messageStatus []*stream.ConfirmationStatus) {
+		go func() {
+			for _, message := range messageStatus {
+				if message.IsConfirmed() {
+
+					if atomic.AddInt32(&counter, 1)%20000 == 0 {
+						log.Debug("Confirmed %d messages", atomic.LoadInt32(&counter))
+					}
+				} else {
+					if atomic.AddInt32(&fail, 1)%20000 == 0 {
+						log.Debug("NOT Confirmed %d messages", atomic.LoadInt32(&fail))
+					}
+				}
+
+			}
+		}()
+	}
 
 	if cfg == nil {
 		return nil, errors.New("rabbitmq config is missing")
@@ -118,17 +113,17 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 		return nil, err
 	}
 
-	rs.tx, err = NewHAProducer(
-		rs.env,
-		rs.cfg.TxStr,
-		stream.NewProducerOptions().
-			SetProducerName(rs.cfg.ClientName).
-			SetCompression(stream.Compression{}.Lz4()),
-		handlePublishConfirm)
+	// rs.tx, err = NewHAProducer(
+	// 	rs.env,
+	// 	rs.cfg.TxStr,
+	// 	stream.NewProducerOptions().
+	// 		SetProducerName(rs.cfg.ClientName).
+	// 		SetCompression(stream.Compression{}.Lz4()),
+	// 	handlePublishConfirm)
 
-	if err != nil {
-		return nil, err
-	}
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	return rs, err
 
@@ -139,8 +134,12 @@ func (sink *RmqSink) Start(ctx context.Context) error {
 		for {
 			select {
 			case s := <-sink.Status:
-				if sink.env != nil {
-					handleStatusUpdate(ctx, s, sink.env, &sink.cfg)
+				for {
+					err := sink.handleStatusUpdate(ctx, s)
+					if err == nil {
+						break
+					}
+					time.Sleep(time.Second)
 				}
 			case b := <-sink.Blocks:
 				for {
@@ -150,7 +149,6 @@ func (sink *RmqSink) Start(ctx context.Context) error {
 					}
 					time.Sleep(time.Second)
 				}
-
 			case <-ctx.Done():
 			}
 
@@ -169,21 +167,28 @@ func (sink *RmqSink) GetLastBlock(ctx context.Context) (uint64, error) {
 	return uint64(last), nil
 }
 
-func handleStatusUpdate(ctx context.Context, status *isink.Status, prod *ReliableProducer, cfg *RmqConfig) error {
+func (sink *RmqSink) handleStatusUpdate(ctx context.Context, status *isink.Status) error {
+
+	if sink.status == nil {
+		err := fmt.Errorf("Status sink not ready")
+		sink.Log.WithError(err).Error()
+		return err
+	}
 
 	jmsg, err := json.Marshal(*status)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[!ERR][RabbitMQ] %s", err)
+		sink.Log.WithError(err).Error()
 		return err
 	}
 
 	msg := amqp.NewMessage(jmsg)
 	msg.SetPublishingId(int64(status.LastRound))
-	prod.Send(msg)
+	sink.status.Send(msg)
 
 	return nil
 }
 
+/*
 func getTopics(txw *isink.TxWrap) []string {
 	t := make(map[string]struct{})
 
@@ -327,6 +332,7 @@ func commitPaySet(ctx context.Context, b *isink.BlockWrap, rc *rmq.Client, publi
 }
 */
 
+/*
 func updateStats(ctx context.Context, b *isink.BlockWrap, rc *rmq.Client) {
 	if len(b.Block.Payset) == 0 {
 		return
@@ -367,8 +373,9 @@ func updateStats(ctx context.Context, b *isink.BlockWrap, rc *rmq.Client) {
 		fmt.Fprintf(os.Stderr, "[!ERR][RabbitMQ] %s", err)
 	}
 }
+*/
 
-func commitBlock(ctx context.Context, b *isink.BlockWrap, rc *rmq.Client) (first bool) {
+func (sink *RmqSink) commitBlock(ctx context.Context, b *isink.BlockWrap) (first bool) {
 	//var wg sync.WaitGroup
 	first = false
 
@@ -402,19 +409,6 @@ func commitBlock(ctx context.Context, b *isink.BlockWrap, rc *rmq.Client) (first
 		go func() {
 			defer wg.Done()
 	*/
-	if err := rc.XAdd(ctx, &rmq.XAddArgs{
-		Stream: "xblock-v2",
-		ID:     fmt.Sprintf("%d-0", b.Block.Round),
-		MaxLen: MAX_Blocks,
-		Approx: true,
-		Values: map[string]interface{}{"msgpack": b.BlockRaw, "round": uint64(b.Block.BlockHeader.Round)},
-	}).Err(); err == nil {
-		//We are first to commit this block to the store
-		first = true
-	}
-	//	}()
-
-	//	wg.Wait()
 	return first
 }
 
@@ -423,19 +417,20 @@ func (sink *RmqSink) handleBlockRmq(ctx context.Context, b *isink.BlockWrap) err
 
 	//Try to commit new block
 	//If successful than we should broadcast to pub/sub
-	publish := commitBlock(ctx, b, sink.rc)
-	if publish {
-		go func() {
-			updateStats(ctx, b, sink.rc)
-		}()
-	}
+	//	publish := commitBlock(ctx, b, sink.rc)
+	// if publish {
+	// 	go func() {
+	// 		updateStats(ctx, b, sink.rc)
+	// 	}()
+	// }
 	//commitPaySet(ctx, b, rc, publish)
 
-	p := "-"
-	if publish {
-		p = "+"
-	}
+	// p := "-"
+	// if publish {
+	// 	p = "+"
+	// }
 
+	p := '-'
 	sink.Log.Infof("Block %d@%s processed(%s) in %s (%d txn). QLen:%d", uint64(b.Block.BlockHeader.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), len(sink.Blocks))
 	return nil
 }
