@@ -32,11 +32,12 @@ import (
 )
 
 type RmqConfig struct {
-	Urls       []string `json:"urls"`
+	ClusterStr []string `json:"stream-cluster"`
+	Cluster    []string `json:"cluster"`
 	ClientName string   `json:"client"`
-	BlockStr   string   `json:"public.str.block"`
-	TxStr      string   `json:"public.hdr.tx"`
-	StatusStr  string   `json:"public.str.status"`
+	BlockStr   string   `json:"block-str"`
+	TxStr      string   `json:"tx-hdr"`
+	StatusStr  string   `json:"status-str"`
 }
 
 type RmqSink struct {
@@ -84,14 +85,14 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 
 	var err error
 	rs.env, err = stream.NewEnvironment(
-		stream.NewEnvironmentOptions().SetUris(rs.cfg.Urls))
+		stream.NewEnvironmentOptions().SetUris(rs.cfg.ClusterStr))
 
 	if err != nil {
 		return nil, err
 	}
 
 	if err = rs.env.DeclareStream(rs.cfg.StatusStr,
-		stream.NewStreamOptions().SetMaxAge(time.Hour*24*14)); err != nil {
+		stream.NewStreamOptions().SetMaxAge(time.Hour)); err != nil {
 		return nil, err
 	}
 
@@ -116,6 +117,7 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 		rs.cfg.BlockStr,
 		stream.NewProducerOptions().
 			SetProducerName(rs.cfg.ClientName).
+			SetSubEntrySize(100).
 			SetCompression(stream.Compression{}.Lz4()),
 		handlePublishConfirm)
 
@@ -169,7 +171,7 @@ func (sink *RmqSink) Start(ctx context.Context) error {
 
 func (sink *RmqSink) GetLastBlock(ctx context.Context) (uint64, error) {
 
-	last, err := sink.block.GetLastPublishingId()
+	last, err := sink.status.GetLastPublishingId()
 	if err != nil {
 		return 0, err
 	}
@@ -440,7 +442,7 @@ func (sink *RmqSink) handleBlockRmq(ctx context.Context, b *isink.BlockWrap) err
 	// 	p = "+"
 	// }
 
-	p := '-'
+	p := "-"
 	sink.Log.Infof("Block %d@%s processed(%s) in %s (%d txn). QLen:%d", uint64(b.Block.BlockHeader.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), len(sink.Blocks))
 	return nil
 }

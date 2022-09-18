@@ -10,11 +10,9 @@ import (
 	"github.com/algorand/go-algorand/data/bookkeeping"
 	"github.com/algorand/go-algorand/data/transactions"
 	"github.com/algorand/go-algorand/protocol"
-	"github.com/algorand/indexer/api/generated/v2"
-	"github.com/algorand/indexer/util"
 )
 
-func onCompletionToTransactionOnCompletion(oc transactions.OnCompletion) generated.OnCompletion {
+func onCompletionToTransactionOnCompletion(oc transactions.OnCompletion) OnCompletion {
 	switch oc {
 	case transactions.NoOpOC:
 		return "noop"
@@ -34,11 +32,11 @@ func onCompletionToTransactionOnCompletion(oc transactions.OnCompletion) generat
 
 // The state delta bits need to be sorted for testing. Maybe it would be
 // for end users too, people always seem to notice results changing.
-func stateDeltaToStateDelta(d basics.StateDelta) *generated.StateDelta {
+func stateDeltaToStateDelta(d basics.StateDelta) *StateDelta {
 	if len(d) == 0 {
 		return nil
 	}
-	var delta generated.StateDelta
+	var delta StateDelta
 	keys := make([]string, 0)
 	for k := range d {
 		keys = append(keys, k)
@@ -46,9 +44,9 @@ func stateDeltaToStateDelta(d basics.StateDelta) *generated.StateDelta {
 	sort.Strings(keys)
 	for _, k := range keys {
 		v := d[k]
-		delta = append(delta, generated.EvalDeltaKeyValue{
+		delta = append(delta, EvalDeltaKeyValue{
 			Key: base64.StdEncoding.EncodeToString([]byte(k)),
-			Value: generated.EvalDelta{
+			Value: EvalDelta{
 				Action: uint64(v.Action),
 				Bytes:  strPtr(base64.StdEncoding.EncodeToString([]byte(v.Bytes))),
 				Uint:   uint64Ptr(v.Uint),
@@ -66,17 +64,17 @@ type rowData struct {
 	AssetCloseAmount uint64
 }
 
-func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint, extra rowData) (generated.Transaction, uint, error) {
-	var payment *generated.TransactionPayment
-	var keyreg *generated.TransactionKeyreg
-	var assetConfig *generated.TransactionAssetConfig
-	var assetFreeze *generated.TransactionAssetFreeze
-	var assetTransfer *generated.TransactionAssetTransfer
-	var application *generated.TransactionApplication
+func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint, extra rowData) (Transaction, uint, error) {
+	var payment *TransactionPayment
+	var keyreg *TransactionKeyreg
+	var assetConfig *TransactionAssetConfig
+	var assetFreeze *TransactionAssetFreeze
+	var assetTransfer *TransactionAssetTransfer
+	var application *TransactionApplication
 
 	switch stxn.Txn.Type {
 	case protocol.PaymentTx:
-		p := generated.TransactionPayment{
+		p := TransactionPayment{
 			CloseAmount:      uint64Ptr(stxn.ApplyData.ClosingAmount.Raw),
 			CloseRemainderTo: addrPtr(stxn.Txn.CloseRemainderTo),
 			Receiver:         stxn.Txn.Receiver.String(),
@@ -84,7 +82,7 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint
 		}
 		payment = &p
 	case protocol.KeyRegistrationTx:
-		k := generated.TransactionKeyreg{
+		k := TransactionKeyreg{
 			NonParticipation:          boolPtr(stxn.Txn.Nonparticipation),
 			SelectionParticipationKey: byteSliceOmitZeroPtr(stxn.Txn.SelectionPK[:]),
 			VoteFirstValid:            uint64Ptr(uint64(stxn.Txn.VoteFirst)),
@@ -95,7 +93,7 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint
 		}
 		keyreg = &k
 	case protocol.AssetConfigTx:
-		assetParams := generated.AssetParams{
+		assetParams := AssetParams{
 			Clawback:      addrPtr(stxn.Txn.AssetParams.Clawback),
 			Creator:       stxn.Txn.Sender.String(),
 			Decimals:      uint64(stxn.Txn.AssetParams.Decimals),
@@ -103,22 +101,22 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint
 			Freeze:        addrPtr(stxn.Txn.AssetParams.Freeze),
 			Manager:       addrPtr(stxn.Txn.AssetParams.Manager),
 			MetadataHash:  byteSliceOmitZeroPtr(stxn.Txn.AssetParams.MetadataHash[:]),
-			Name:          strPtr(util.PrintableUTF8OrEmpty(stxn.Txn.AssetParams.AssetName)),
+			Name:          strPtr(PrintableUTF8OrEmpty(stxn.Txn.AssetParams.AssetName)),
 			NameB64:       byteSlicePtr([]byte(stxn.Txn.AssetParams.AssetName)),
 			Reserve:       addrPtr(stxn.Txn.AssetParams.Reserve),
 			Total:         stxn.Txn.AssetParams.Total,
-			UnitName:      strPtr(util.PrintableUTF8OrEmpty(stxn.Txn.AssetParams.UnitName)),
+			UnitName:      strPtr(PrintableUTF8OrEmpty(stxn.Txn.AssetParams.UnitName)),
 			UnitNameB64:   byteSlicePtr([]byte(stxn.Txn.AssetParams.UnitName)),
-			Url:           strPtr(util.PrintableUTF8OrEmpty(stxn.Txn.AssetParams.URL)),
+			Url:           strPtr(PrintableUTF8OrEmpty(stxn.Txn.AssetParams.URL)),
 			UrlB64:        byteSlicePtr([]byte(stxn.Txn.AssetParams.URL)),
 		}
-		config := generated.TransactionAssetConfig{
+		config := TransactionAssetConfig{
 			AssetId: uint64Ptr(uint64(stxn.Txn.ConfigAsset)),
 			Params:  &assetParams,
 		}
 		assetConfig = &config
 	case protocol.AssetTransferTx:
-		t := generated.TransactionAssetTransfer{
+		t := TransactionAssetTransfer{
 			Amount:      stxn.Txn.AssetAmount,
 			AssetId:     uint64(stxn.Txn.XferAsset),
 			CloseTo:     addrPtr(stxn.Txn.AssetCloseTo),
@@ -128,7 +126,7 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint
 		}
 		assetTransfer = &t
 	case protocol.AssetFreezeTx:
-		f := generated.TransactionAssetFreeze{
+		f := TransactionAssetFreeze{
 			Address:         stxn.Txn.FreezeAccount.String(),
 			AssetId:         uint64(stxn.Txn.FreezeAsset),
 			NewFreezeStatus: stxn.Txn.AssetFrozen,
@@ -155,7 +153,7 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint
 			assets = append(assets, uint64(v))
 		}
 
-		a := generated.TransactionApplication{
+		a := TransactionApplication{
 			Accounts:          &accts,
 			ApplicationArgs:   &args,
 			ApplicationId:     uint64(stxn.Txn.ApplicationID),
@@ -163,11 +161,11 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint
 			ClearStateProgram: byteSliceOmitZeroPtr(stxn.Txn.ClearStateProgram),
 			ForeignApps:       &apps,
 			ForeignAssets:     &assets,
-			GlobalStateSchema: &generated.StateSchema{
+			GlobalStateSchema: &StateSchema{
 				NumByteSlice: stxn.Txn.GlobalStateSchema.NumByteSlice,
 				NumUint:      stxn.Txn.GlobalStateSchema.NumUint,
 			},
-			LocalStateSchema: &generated.StateSchema{
+			LocalStateSchema: &StateSchema{
 				NumByteSlice: stxn.Txn.LocalStateSchema.NumByteSlice,
 				NumUint:      stxn.Txn.LocalStateSchema.NumUint,
 			},
@@ -178,7 +176,7 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint
 		application = &a
 	}
 
-	var localStateDelta *[]generated.AccountStateDelta
+	var localStateDelta *[]AccountStateDelta
 	type tuple struct {
 		key     uint64
 		address basics.Address
@@ -201,12 +199,12 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint
 			}
 		}
 		sort.Slice(keys, func(i, j int) bool { return keys[i].key < keys[j].key })
-		d := make([]generated.AccountStateDelta, 0)
+		d := make([]AccountStateDelta, 0)
 		for _, k := range keys {
 			v := stxn.ApplyData.EvalDelta.LocalDeltas[k.key]
 			delta := stateDeltaToStateDelta(v)
 			if delta != nil {
-				d = append(d, generated.AccountStateDelta{
+				d = append(d, AccountStateDelta{
 					Address: k.address.String(),
 					Delta:   *delta,
 				})
@@ -224,9 +222,9 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint
 		logs = &l
 	}
 	intra++
-	var inners *[]generated.Transaction
+	var inners *[]Transaction
 	if len(stxn.ApplyData.EvalDelta.InnerTxns) > 0 {
-		itxns := make([]generated.Transaction, 0, len(stxn.ApplyData.EvalDelta.InnerTxns))
+		itxns := make([]Transaction, 0, len(stxn.ApplyData.EvalDelta.InnerTxns))
 		for _, t := range stxn.ApplyData.EvalDelta.InnerTxns {
 			extra2 := extra
 			if t.Txn.Type == protocol.ApplicationCallTx {
@@ -241,7 +239,7 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint
 			itxn, nextintra, err := signedTxnWithAdToTransaction(&t, intra, extra2)
 			intra = nextintra
 			if err != nil {
-				return generated.Transaction{}, intra, err
+				return Transaction{}, intra, err
 			}
 			itxns = append(itxns, itxn)
 		}
@@ -249,7 +247,7 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint
 		inners = &itxns
 	}
 
-	txn := generated.Transaction{
+	txn := Transaction{
 		ApplicationTransaction:   application,
 		AssetConfigTransaction:   assetConfig,
 		AssetFreezeTransaction:   assetFreeze,
@@ -345,20 +343,20 @@ func sigToTransactionSig(sig crypto.Signature) *[]byte {
 	return &tsig
 }
 
-func msigToTransactionMsig(msig crypto.MultisigSig) *generated.TransactionSignatureMultisig {
+func msigToTransactionMsig(msig crypto.MultisigSig) *TransactionSignatureMultisig {
 	if msig.Blank() {
 		return nil
 	}
 
-	subsigs := make([]generated.TransactionSignatureMultisigSubsignature, 0)
+	subsigs := make([]TransactionSignatureMultisigSubsignature, 0)
 	for _, subsig := range msig.Subsigs {
-		subsigs = append(subsigs, generated.TransactionSignatureMultisigSubsignature{
+		subsigs = append(subsigs, TransactionSignatureMultisigSubsignature{
 			PublicKey: byteSliceOmitZeroPtr(subsig.Key[:]),
 			Signature: sigToTransactionSig(subsig.Sig),
 		})
 	}
 
-	ret := generated.TransactionSignatureMultisig{
+	ret := TransactionSignatureMultisig{
 		Subsignature: &subsigs,
 		Threshold:    uint64Ptr(uint64(msig.Threshold)),
 		Version:      uint64Ptr(uint64(msig.Version)),
@@ -366,7 +364,7 @@ func msigToTransactionMsig(msig crypto.MultisigSig) *generated.TransactionSignat
 	return &ret
 }
 
-func lsigToTransactionLsig(lsig transactions.LogicSig) *generated.TransactionSignatureLogicsig {
+func lsigToTransactionLsig(lsig transactions.LogicSig) *TransactionSignatureLogicsig {
 	if lsig.Blank() {
 		return nil
 	}
@@ -376,7 +374,7 @@ func lsigToTransactionLsig(lsig transactions.LogicSig) *generated.TransactionSig
 		args = append(args, base64.StdEncoding.EncodeToString(arg))
 	}
 
-	ret := generated.TransactionSignatureLogicsig{
+	ret := TransactionSignatureLogicsig{
 		Args:              &args,
 		Logic:             lsig.Logic,
 		MultisigSignature: msigToTransactionMsig(lsig.Msig),

@@ -5,16 +5,13 @@ import (
 
 	"github.com/algorand/go-algorand/data/bookkeeping"
 	"github.com/algorand/go-algorand/data/transactions"
-	"github.com/algorand/indexer/api/generated/v2"
 )
-
-type BlockResponse generated.Block
 
 func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
 	var ret BlockResponse
 	blockHeader := block.BlockHeader
 
-	rewards := generated.BlockRewards{
+	rewards := BlockRewards{
 		FeeSink:                 blockHeader.FeeSink.String(),
 		RewardsCalculationRound: uint64(blockHeader.RewardsRecalculationRound),
 		RewardsLevel:            blockHeader.RewardsLevel,
@@ -23,7 +20,7 @@ func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
 		RewardsResidue:          blockHeader.RewardsResidue,
 	}
 
-	upgradeState := generated.BlockUpgradeState{
+	upgradeState := BlockUpgradeState{
 		CurrentProtocol:        string(blockHeader.CurrentProtocol),
 		NextProtocol:           strPtr(string(blockHeader.NextProtocol)),
 		NextProtocolApprovals:  uint64Ptr(blockHeader.NextProtocolApprovals),
@@ -31,7 +28,7 @@ func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
 		NextProtocolVoteBefore: uint64Ptr(uint64(blockHeader.NextProtocolVoteBefore)),
 	}
 
-	upgradeVote := generated.BlockUpgradeVote{
+	upgradeVote := BlockUpgradeVote{
 		UpgradeApprove: boolPtr(blockHeader.UpgradeApprove),
 		UpgradeDelay:   uint64Ptr(uint64(blockHeader.UpgradeDelay)),
 		UpgradePropose: strPtr(string(blockHeader.UpgradePropose)),
@@ -62,9 +59,9 @@ func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
 	return &ret, nil
 }
 
-func genTransactions(block *bookkeeping.Block, modifiedTxns []transactions.SignedTxnInBlock) ([]generated.Transaction, error) {
+func genTransactions(block *bookkeeping.Block, modifiedTxns []transactions.SignedTxnInBlock) ([]Transaction, error) {
 	intra := uint(0)
-	results := make([]generated.Transaction, 0)
+	results := make([]Transaction, 0)
 	for idx, stib := range modifiedTxns {
 		// Do not include inner transactions.
 		// if txrow.RootTxn != nil {
@@ -99,7 +96,7 @@ func genTransactions(block *bookkeeping.Block, modifiedTxns []transactions.Signe
 			AssetCloseAmount: block.Payset[idx].ApplyData.AssetClosingAmount,
 		}
 
-		sig := generated.TransactionSignature{
+		sig := TransactionSignature{
 			Logicsig: lsigToTransactionLsig(stxnad.Lsig),
 			Multisig: msigToTransactionMsig(stxnad.Msig),
 			Sig:      sigToTransactionSig(stxnad.Sig),
