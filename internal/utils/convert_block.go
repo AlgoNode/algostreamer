@@ -53,7 +53,7 @@ func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("Block %d, txns %d\n", block.BlockHeader.Round, len(txn))
+	//fmt.Printf("Block %d, txns %d\n", block.BlockHeader.Round, len(txn))
 
 	ret.Transactions = &txn
 	return &ret, nil

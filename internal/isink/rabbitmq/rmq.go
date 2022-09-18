@@ -25,6 +25,7 @@ import (
 
 	"github.com/algonode/algostreamer/internal/config"
 	"github.com/algonode/algostreamer/internal/isink"
+	"github.com/algonode/algostreamer/internal/utils"
 	"github.com/sirupsen/logrus"
 
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/amqp"
@@ -60,13 +61,11 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 			for _, message := range messageStatus {
 				if message.IsConfirmed() {
 
-					if atomic.AddInt32(&counter, 1)%20000 == 0 {
-						log.Debug("Confirmed %d messages", atomic.LoadInt32(&counter))
-					}
+					atomic.AddInt32(&counter, 1)
+					log.Debugf("Confirmed %d messages, pid: %d", atomic.LoadInt32(&counter), message.GetPublishingId())
 				} else {
-					if atomic.AddInt32(&fail, 1)%20000 == 0 {
-						log.Debug("NOT Confirmed %d messages", atomic.LoadInt32(&fail))
-					}
+					atomic.AddInt32(&fail, 1)
+					log.Debugf("NOT Confirmed %d messages", atomic.LoadInt32(&fail))
 				}
 
 			}
@@ -92,8 +91,8 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 	}
 
 	if err = rs.env.DeclareStream(rs.cfg.StatusStr,
-		stream.NewStreamOptions().SetMaxAge(time.Hour)); err != nil {
-		return nil, err
+		stream.NewStreamOptions().SetMaxLengthBytes(stream.ByteCapacity{}.KB(20)).SetMaxSegmentSizeBytes(stream.ByteCapacity{}.KB(10))); err != nil {
+		return nil, fmt.Errorf("error declaring stream: %s : %v", rs.cfg.StatusStr, err)
 	}
 
 	rs.status, err = NewHAProducer(
@@ -104,25 +103,23 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 		handlePublishConfirm)
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating stream producer : %s : %v", rs.cfg.StatusStr, err)
 	}
 
 	if err = rs.env.DeclareStream(rs.cfg.BlockStr,
 		stream.NewStreamOptions().SetMaxAge(time.Hour*24*14)); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error declaring stream: %s : %v", rs.cfg.BlockStr, err)
 	}
 
 	rs.block, err = NewHAProducer(
 		rs.env,
 		rs.cfg.BlockStr,
 		stream.NewProducerOptions().
-			SetProducerName(rs.cfg.ClientName).
-			SetSubEntrySize(100).
-			SetCompression(stream.Compression{}.Lz4()),
+			SetProducerName(rs.cfg.ClientName),
 		handlePublishConfirm)
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating stream producer : %s : %v", rs.cfg.BlockStr, err)
 	}
 
 	// rs.tx, err = NewHAProducer(
@@ -171,7 +168,7 @@ func (sink *RmqSink) Start(ctx context.Context) error {
 
 func (sink *RmqSink) GetLastBlock(ctx context.Context) (uint64, error) {
 
-	last, err := sink.status.GetLastPublishingId()
+	last, err := sink.block.GetLastPublishingId()
 	if err != nil {
 		return 0, err
 	}
@@ -189,13 +186,15 @@ func (sink *RmqSink) handleStatusUpdate(ctx context.Context, status *isink.Statu
 
 	jmsg, err := json.Marshal(*status)
 	if err != nil {
-		sink.Log.WithError(err).Error()
+		sink.Log.WithError(err).Error("Error marshaling status update")
 		return err
 	}
 
 	msg := amqp.NewMessage(jmsg)
 	msg.SetPublishingId(int64(status.LastRound))
-	sink.status.Send(msg)
+	if err := sink.status.Send(msg); err != nil {
+		sink.Log.WithError(err).Error("Error marshaling status update")
+	}
 
 	return nil
 }
@@ -388,61 +387,42 @@ func updateStats(ctx context.Context, b *isink.BlockWrap, rc *rmq.Client) {
 */
 
 func (sink *RmqSink) commitBlock(ctx context.Context, b *isink.BlockWrap) (first bool) {
-	//var wg sync.WaitGroup
-	first = false
 
-	//Enqeue MSGPACK and JSON versions in paralell.
-	//Check if we are the first to enqueue
+	jBlock, err := utils.EncodeJson(b.Block)
+	if err != nil {
+		sink.Log.WithError(err).Error("Error encoding block to json")
+	} else {
+		msg := amqp.NewMessage(jBlock)
+		msg.SetPublishingId(int64(b.Block.Round()))
+		if err := sink.block.Send(msg); err != nil {
+			sink.Log.WithError(err).Error("Error marshaling status update")
+			return false
+		}
+		//sink.Log.Debugf("Sent block %d, len %dB, id:%d", b.Block.Round(), len(jBlock), msg.GetPublishingId())
 
-	/*
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			jBlock, err := utils.EncodeJson(b.Block)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "[!ERR][RabbitMQ] Error encoding block to json: %s", err)
-			} else {
-				if err := rc.XAdd(ctx, &rmq.XAddArgs{
-					Stream: "xblock-v2-json",
-					ID:     fmt.Sprintf("%d-0", b.Block.Round),
-					MaxLen: MAX_Blocks,
-					Approx: true,
-					Values: map[string]interface{}{"json": string(jBlock), "round": uint64(b.Block.Round)},
-				}).Err(); err != nil {
-					if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
-						fmt.Fprintf(os.Stderr, "[!ERR][RabbitMQ] %s", err)
-					}
-					//do not bail out
-				}
-			}
-		}()
+	}
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-	*/
-	return first
+	return true
 }
 
 func (sink *RmqSink) handleBlockRmq(ctx context.Context, b *isink.BlockWrap) error {
 	start := time.Now()
 
-	//Try to commit new block
-	//If successful than we should broadcast to pub/sub
-	//	publish := commitBlock(ctx, b, sink.rc)
+	// Try to commit new block
+	// If successful than we should broadcast to pub/sub
+	publish := sink.commitBlock(ctx, b)
 	// if publish {
 	// 	go func() {
 	// 		updateStats(ctx, b, sink.rc)
 	// 	}()
 	// }
-	//commitPaySet(ctx, b, rc, publish)
-
-	// p := "-"
-	// if publish {
-	// 	p = "+"
-	// }
+	// commitPaySet(ctx, b, rc, publish)
 
 	p := "-"
+	if publish {
+		p = "+"
+	}
+
 	sink.Log.Infof("Block %d@%s processed(%s) in %s (%d txn). QLen:%d", uint64(b.Block.BlockHeader.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), len(sink.Blocks))
 	return nil
 }
