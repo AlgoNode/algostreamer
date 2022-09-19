@@ -2,9 +2,11 @@ package utils
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/algorand/go-algorand/data/bookkeeping"
 	"github.com/algorand/go-algorand/data/transactions"
+	"github.com/algorand/go-algorand/protocol"
 )
 
 func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
@@ -34,19 +36,40 @@ func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
 		UpgradePropose: strPtr(string(blockHeader.UpgradePropose)),
 	}
 
+	orderedTrackingTypes := make([]protocol.StateProofType, len(blockHeader.StateProofTracking))
+	trackingArray := make([]StateProofTracking, len(blockHeader.StateProofTracking))
+	elems := 0
+	for key := range blockHeader.StateProofTracking {
+		orderedTrackingTypes[elems] = key
+		elems++
+	}
+	sort.Slice(orderedTrackingTypes, func(i, j int) bool { return orderedTrackingTypes[i] < orderedTrackingTypes[j] })
+	for i := 0; i < len(orderedTrackingTypes); i++ {
+		stpfTracking := blockHeader.StateProofTracking[orderedTrackingTypes[i]]
+		thing1 := StateProofTracking{
+			NextRound:         uint64Ptr(uint64(stpfTracking.StateProofNextRound)),
+			Type:              uint64Ptr(uint64(orderedTrackingTypes[i])),
+			VotersCommitment:  byteSliceOmitZeroPtr(stpfTracking.StateProofVotersCommitment),
+			OnlineTotalWeight: uint64Ptr(stpfTracking.StateProofOnlineTotalWeight.Raw),
+		}
+		trackingArray[orderedTrackingTypes[i]] = thing1
+	}
+
 	ret = BlockResponse{
-		GenesisHash:       blockHeader.GenesisHash[:],
-		GenesisId:         blockHeader.GenesisID,
-		PreviousBlockHash: blockHeader.Branch[:],
-		Rewards:           &rewards,
-		Round:             uint64(blockHeader.Round),
-		Seed:              blockHeader.Seed[:],
-		Timestamp:         uint64(blockHeader.TimeStamp),
-		Transactions:      nil,
-		TransactionsRoot:  blockHeader.TxnCommitments.NativeSha512_256Commitment[:],
-		TxnCounter:        uint64Ptr(blockHeader.TxnCounter),
-		UpgradeState:      &upgradeState,
-		UpgradeVote:       &upgradeVote,
+		GenesisHash:            blockHeader.GenesisHash[:],
+		GenesisId:              blockHeader.GenesisID,
+		PreviousBlockHash:      blockHeader.Branch[:],
+		Rewards:                &rewards,
+		Round:                  uint64(blockHeader.Round),
+		Seed:                   blockHeader.Seed[:],
+		StateProofTracking:     &trackingArray,
+		Timestamp:              uint64(blockHeader.TimeStamp),
+		Transactions:           nil,
+		TransactionsRoot:       blockHeader.TxnCommitments.NativeSha512_256Commitment[:],
+		TransactionsRootSha256: blockHeader.TxnCommitments.Sha256Commitment[:],
+		TxnCounter:             uint64Ptr(blockHeader.TxnCounter),
+		UpgradeState:           &upgradeState,
+		UpgradeVote:            &upgradeVote,
 	}
 
 	txn, err := genTransactions(block, block.Payset)

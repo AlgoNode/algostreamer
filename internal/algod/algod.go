@@ -104,6 +104,7 @@ func makeBlockWrap(rawBlock []byte, src string) (*isink.BlockWrap, error) {
 
 	return &isink.BlockWrap{
 		Block:         &block.Block,
+		BlockResponse: blockIdx,
 		BlockRaw:      rawBlock,
 		BlockJsonNode: string(jBlock),
 		BlockJsonIDX:  string(idxJBlock),

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/algonode/algostreamer/internal/utils"
 	"github.com/algorand/go-algorand-sdk/types"
 	"github.com/algorand/go-algorand/data/bookkeeping"
 	"github.com/sirupsen/logrus"
@@ -19,6 +20,7 @@ type Status struct {
 
 type BlockWrap struct {
 	Block         *bookkeeping.Block
+	BlockResponse *utils.BlockResponse
 	BlockRaw      []byte
 	BlockJsonNode string
 	BlockJsonIDX  string

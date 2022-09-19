@@ -17,17 +17,22 @@ package rabbitmq
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sync/atomic"
 	"time"
 
 	"github.com/algonode/algostreamer/internal/config"
 	"github.com/algonode/algostreamer/internal/isink"
 	"github.com/algonode/algostreamer/internal/utils"
+
 	"github.com/sirupsen/logrus"
 
+	"github.com/rabbitmq/amqp091-go"
+	amqp91 "github.com/rabbitmq/amqp091-go"
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/amqp"
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/stream"
 )
@@ -47,6 +52,7 @@ type RmqSink struct {
 	env    *stream.Environment
 	status *ReliableProducer
 	block  *ReliableProducer
+	tx     *Channel
 }
 
 var counter int32 = 0
@@ -60,12 +66,10 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 		go func() {
 			for _, message := range messageStatus {
 				if message.IsConfirmed() {
-
 					atomic.AddInt32(&counter, 1)
-					log.Debugf("Confirmed %d messages, pid: %d", atomic.LoadInt32(&counter), message.GetPublishingId())
 				} else {
 					atomic.AddInt32(&fail, 1)
-					log.Debugf("NOT Confirmed %d messages", atomic.LoadInt32(&fail))
+					log.Warnf("NOT Confirmed %d messages", atomic.LoadInt32(&fail))
 				}
 
 			}
@@ -100,7 +104,7 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 		rs.cfg.StatusStr,
 		stream.NewProducerOptions().
 			SetProducerName(rs.cfg.ClientName),
-		handlePublishConfirm)
+		handlePublishConfirm, log)
 
 	if err != nil {
 		return nil, fmt.Errorf("error creating stream producer : %s : %v", rs.cfg.StatusStr, err)
@@ -116,23 +120,30 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 		rs.cfg.BlockStr,
 		stream.NewProducerOptions().
 			SetProducerName(rs.cfg.ClientName),
-		handlePublishConfirm)
+		handlePublishConfirm, log)
 
 	if err != nil {
 		return nil, fmt.Errorf("error creating stream producer : %s : %v", rs.cfg.BlockStr, err)
 	}
 
-	// rs.tx, err = NewHAProducer(
-	// 	rs.env,
-	// 	rs.cfg.TxStr,
-	// 	stream.NewProducerOptions().
-	// 		SetProducerName(rs.cfg.ClientName).
-	// 		SetCompression(stream.Compression{}.Lz4()),
-	// 	handlePublishConfirm)
+	config := amqp091.Config{
+		Properties: amqp091.NewConnectionProperties(),
+	}
+	config.Properties.SetClientConnectionName(rs.cfg.ClientName)
 
-	// if err != nil {
-	// 	return nil, err
-	// }
+	conn, err := DialConfigCluster(rs.cfg.Cluster, config, log)
+
+	if err != nil {
+		return nil, fmt.Errorf("error dialing AMQP91 cluster : %v", err)
+	}
+
+	if rs.tx, err = conn.Channel(); err != nil {
+		return nil, fmt.Errorf("error creating AMQP91 channel : %v", err)
+	}
+
+	if err := rs.tx.ExchangeDeclare(rs.cfg.TxStr, "headers", true, false, false, false, nil); err != nil {
+		return nil, fmt.Errorf("error declaring AMQP91 headers exchange : %v", err)
+	}
 
 	return rs, err
 
@@ -199,208 +210,135 @@ func (sink *RmqSink) handleStatusUpdate(ctx context.Context, status *isink.Statu
 	return nil
 }
 
-/*
-func getTopics(txw *isink.TxWrap) []string {
-	t := make(map[string]struct{})
+func appendHeaders(tx *utils.Transaction, t amqp91.Table) {
 
-	addACC := func(a types.Address) {
-		if a.IsZero() {
+	addACC := func(a *string) {
+		if a == nil || *a == "" {
 			return
 		}
-		t["ACC:"+a.String()] = struct{}{}
+		t["ACC:"+*a] = 1
 	}
 
-	addASA := func(a types.AssetIndex) {
+	addASA := func(a *uint64) {
+		if a == nil || *a == 0 {
+			return
+		}
+		t[fmt.Sprintf("ASA:%d", a)] = 1
+	}
+
+	addAPP := func(a uint64) {
 		if a == 0 {
 			return
 		}
-		t[fmt.Sprintf("ASA:%d", uint64(a))] = struct{}{}
+		t[fmt.Sprintf("APP:%d", a)] = 1
 	}
 
-	addAPP := func(a types.AppIndex) {
-		if a == 0 {
-			return
+	addACC(&tx.Sender)
+	addACC(tx.AuthAddr)
+	switch tx.TxType {
+	case "pay":
+		addACC(&tx.Sender)
+		addACC(&tx.PaymentTransaction.Receiver)
+		addACC(tx.PaymentTransaction.CloseRemainderTo)
+	case "axfer":
+		addACC(&tx.Sender)
+		addACC(&tx.AssetTransferTransaction.Receiver)
+		addACC(tx.AssetTransferTransaction.CloseTo)
+		addASA(&tx.AssetTransferTransaction.AssetId)
+	case "acfg":
+		addACC(tx.AssetConfigTransaction.Params.Manager)
+		addACC(tx.AssetConfigTransaction.Params.Reserve)
+		addACC(tx.AssetConfigTransaction.Params.Clawback)
+		addACC(tx.AssetConfigTransaction.Params.Freeze)
+		addASA(tx.AssetConfigTransaction.AssetId)
+	case "afrz":
+		addACC(&tx.AssetFreezeTransaction.Address)
+		addASA(&tx.AssetFreezeTransaction.AssetId)
+	case "appl":
+		addAPP(tx.ApplicationTransaction.ApplicationId)
+		if tx.ApplicationTransaction.ForeignApps != nil {
+			for _, app := range *tx.ApplicationTransaction.ForeignApps {
+				addAPP(app)
+			}
 		}
-		t[fmt.Sprintf("APP:%d", uint64(a))] = struct{}{}
-	}
-
-	tx := &txw.Txn.Txn
-	addACC(tx.Sender)
-	addACC(txw.Txn.AuthAddr)
-	switch tx.Type {
-	case types.PaymentTx:
-		addACC(tx.Receiver)
-		addACC(tx.CloseRemainderTo)
-	case types.AssetTransferTx:
-		addACC(tx.AssetSender)
-		addACC(tx.AssetReceiver)
-		addACC(tx.CloseRemainderTo)
-		addASA(tx.XferAsset)
-	case types.AssetConfigTx:
-		addACC(tx.AssetConfigTxnFields.AssetParams.Manager)
-		addACC(tx.AssetConfigTxnFields.AssetParams.Reserve)
-		addACC(tx.AssetConfigTxnFields.AssetParams.Clawback)
-		addACC(tx.AssetConfigTxnFields.AssetParams.Freeze)
-		addASA(tx.ConfigAsset)
-	case types.AssetFreezeTx:
-		addACC(tx.AssetFreezeTxnFields.FreezeAccount)
-		addASA(tx.FreezeAsset)
-	case types.ApplicationCallTx:
-		addAPP(tx.ApplicationID)
-		for i := range tx.ForeignApps {
-			addAPP(tx.ForeignApps[i])
+		if tx.ApplicationTransaction.ForeignAssets != nil {
+			for _, asa := range *tx.ApplicationTransaction.ForeignAssets {
+				addASA(&asa)
+			}
 		}
-		for i := range tx.ForeignAssets {
-			addASA(tx.ForeignAssets[i])
-		}
-		for i := range tx.Accounts {
-			addACC(tx.Accounts[i])
+		if tx.ApplicationTransaction.Accounts != nil {
+			for _, addr := range *tx.ApplicationTransaction.Accounts {
+				addACC(&addr)
+			}
 		}
 	}
 	//Allow subscriptions based on note prefix (up to 32 chars in base64)
-	t["NOTE:"+getNotePrefix(txw, 32)] = struct{}{}
-	if tx.Group != (types.Digest{}) {
-		t["GRP:"+base64.StdEncoding.EncodeToString(tx.Group[:])] = struct{}{}
-	}
-
-	topics := make([]string, len(t))
-	for k := range t {
-		if len(k) > 0 {
-			topics = append(topics, k)
-		}
-	}
-
-	return topics
-}
-func getNotePrefix(txw *isink.TxWrap, l int) string {
-	nb64 := base64.StdEncoding.EncodeToString(txw.Txn.Txn.Note)
-	if l > len(nb64) {
-		return nb64
-	}
-	return nb64[:l]
+	appendNotePrefix(tx, 6, t)
+	appendNotePrefix(tx, 8, t)
+	appendNotePrefix(tx, 10, t)
 }
 
-func genTopic(txw *isink.TxWrap) string {
-	topics := getTopics(txw)
-	sort.Strings(topics)
-	return fmt.Sprintf("TX:%s;%s", txw.TxId, strings.Join(topics, ";"))
+func appendNotePrefix(tx *utils.Transaction, l int, t amqp91.Table) {
+	if tx.Note == nil || len(*tx.Note) == 0 {
+		return
+	}
+	len := len(*tx.Note)
+	if len > l {
+		len = l
+	}
+	key := fmt.Sprintf("Note-%d", l)
+	nb64 := base64.StdEncoding.EncodeToString((*tx.Note)[:len])
+	t[key] = nb64
 }
 
-/*
-func commitPaySet(ctx context.Context, b *isink.BlockWrap, rc *rmq.Client, publish bool) {
-	if len(b.Block.Payset) == 0 {
+func (sink *RmqSink) commitPaySet(ctx context.Context, b *isink.BlockWrap) {
+	if b.BlockResponse.Transactions == nil || len(*b.BlockResponse.Transactions) == 0 {
 		return
 	}
 
-	pipe := rc.Pipeline()
+	for i := range *b.BlockResponse.Transactions {
+		txn := (*b.BlockResponse.Transactions)[i]
 
-	for i := range b.Block.Payset {
-		txn := &b.Block.Payset[i]
-		//I just love how easy is to get txId nowadays ;)
-		txId, err := algod.DecodeTxnId(b.Block.BlockHeader, txn)
+		jTx, err := utils.EncodeJson(txn)
+		if err != nil {
+			continue
+		}
+
+		hdrs := amqp91.Table{
+			"round":        int64(b.Block.BlockHeader.Round),
+			"txid":         *txn.Id,
+			"intra":        i,
+			"type":         txn.TxType,
+			"publishingId": int64(b.Block.BlockHeader.Round)*100000 + int64(i),
+		}
+
+		appendHeaders(&txn, hdrs)
+
+		msg := amqp91.Publishing{
+			ContentType: "application/json",
+			Headers:     hdrs,
+			Body:        jTx,
+		}
+
+		err = sink.tx.ReliablePublishWithContext(ctx, sink.cfg.TxStr, "", false, false, msg)
+
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[!ERR][RabbitMQ] %s", err)
 			continue
 		}
 
-		txw := &isink.TxWrap{
-			TxId:  txId,
-			Txn:   txn,
-			Round: uint64(b.Block.Round),
-			Intra: i,
-			Key:   fmt.Sprintf("%d-%d", uint64(b.Block.Round), i),
-		}
-		jTx, err := utils.EncodeJson(txw)
-
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[!ERR][RabbitMQ] %s", err)
-			continue
-		}
-
-		if err := pipe.XAdd(ctx, &rmq.XAddArgs{
-			Stream: "xtx-v2",
-			ID:     fmt.Sprintf("%d-%d", b.Block.Round, i),
-			MaxLen: MAX_TXN,
-			Approx: true,
-			Values: map[string]interface{}{"json": string(jTx)},
-		}).Err(); err != nil {
-			if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
-				fmt.Fprintf(os.Stderr, "[!ERR][RabbitMQ] %s", err)
-			}
-		}
-
-		if publish {
-			topic := genTopic(txw)
-			pipe.Publish(ctx, topic, string(jTx))
-		}
-
-	}
-	if _, err := pipe.Exec(ctx); err != nil {
-		if !strings.HasPrefix(err.Error(), "ERR The ID specified in XADD") {
-			fmt.Fprintf(os.Stderr, "[!ERR][RabbitMQ] %s", err)
-		}
 	}
 }
-*/
-
-/*
-func updateStats(ctx context.Context, b *isink.BlockWrap, rc *rmq.Client) {
-	if len(b.Block.Payset) == 0 {
-		return
-	}
-
-	today := time.Unix(b.Block.TimeStamp, 0).UTC().Format("20060102")
-	todayC := "CD:" + today
-	todayV := "VD:" + today
-
-	asaC := make(map[uint64]int64)
-	asaV := make(map[uint64]float64)
-	pipe := rc.Pipeline()
-
-	for i := range b.Block.Payset {
-		txn := &b.Block.Payset[i]
-		//Aggregate asset tx stats
-		if txn.Txn.XferAsset > 0 {
-			asaC[uint64(txn.Txn.XferAsset)]++
-			asaV[uint64(txn.Txn.XferAsset)] += float64(txn.Txn.AssetAmount)
-		}
-		if txn.Txn.ConfigAsset > 0 {
-			asaC[uint64(txn.Txn.ConfigAsset)]++
-		}
-		if txn.Txn.FreezeAsset > 0 {
-			asaC[uint64(txn.Txn.FreezeAsset)]++
-		}
-	}
-
-	for k := range asaC {
-		hk := fmt.Sprintf("ASA:%d", k)
-		pipe.HIncrBy(ctx, hk, todayC, asaC[k])
-		if v, ok := asaV[k]; ok {
-			pipe.HIncrByFloat(ctx, hk, todayV, v)
-		}
-	}
-
-	if _, err := pipe.Exec(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "[!ERR][RabbitMQ] %s", err)
-	}
-}
-*/
 
 func (sink *RmqSink) commitBlock(ctx context.Context, b *isink.BlockWrap) (first bool) {
 
-	jBlock, err := utils.EncodeJson(b.Block)
-	if err != nil {
-		sink.Log.WithError(err).Error("Error encoding block to json")
-	} else {
-		msg := amqp.NewMessage(jBlock)
-		msg.SetPublishingId(int64(b.Block.Round()))
-		if err := sink.block.Send(msg); err != nil {
-			sink.Log.WithError(err).Error("Error marshaling status update")
-			return false
-		}
-		//sink.Log.Debugf("Sent block %d, len %dB, id:%d", b.Block.Round(), len(jBlock), msg.GetPublishingId())
-
+	msg := amqp.NewMessage([]byte(b.BlockJsonIDX))
+	msg.SetPublishingId(int64(b.Block.BlockHeader.Round))
+	if err := sink.block.Send(msg); err != nil {
+		sink.Log.WithError(err).Error("Error marshaling status update")
+		return false
 	}
+	//sink.Log.Debugf("Sent block %d, len %dB, id:%d", b.Block.Round(), len(jBlock), msg.GetPublishingId())
 
 	return true
 }
@@ -411,12 +349,7 @@ func (sink *RmqSink) handleBlockRmq(ctx context.Context, b *isink.BlockWrap) err
 	// Try to commit new block
 	// If successful than we should broadcast to pub/sub
 	publish := sink.commitBlock(ctx, b)
-	// if publish {
-	// 	go func() {
-	// 		updateStats(ctx, b, sink.rc)
-	// 	}()
-	// }
-	// commitPaySet(ctx, b, rc, publish)
+	sink.commitPaySet(ctx, b)
 
 	p := "-"
 	if publish {

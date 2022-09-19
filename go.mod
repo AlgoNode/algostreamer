@@ -8,6 +8,7 @@ require (
 	github.com/algorand/go-codec/codec v1.1.9
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/pkg/errors v0.9.1
+	github.com/rabbitmq/amqp091-go v1.5.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/tidwall/jsonc v0.3.2
 )
@@ -32,7 +33,6 @@ require (
 	github.com/mmcloughlin/addchain v0.4.0 // indirect
 	github.com/pierrec/lz4 v2.6.1+incompatible // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/rabbitmq/amqp091-go v1.5.0 // indirect
 	github.com/stretchr/testify v1.8.0 // indirect
 	golang.org/x/mod v0.6.0-dev.0.20220419223038-86c51ed26bb4 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect

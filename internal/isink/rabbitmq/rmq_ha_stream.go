@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/logs"
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/message"
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/stream"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -37,13 +37,14 @@ type ReliableProducer struct {
 	mutex                 *sync.Mutex
 	mutexStatus           *sync.Mutex
 	status                int
+	log                   *logrus.Logger
 }
 
 type ConfirmMessageHandler func(messageConfirm []*stream.ConfirmationStatus)
 
 func NewHAProducer(env *stream.Environment, streamName string,
 	producerOptions *stream.ProducerOptions,
-	confirmMessageHandler ConfirmMessageHandler) (*ReliableProducer, error) {
+	confirmMessageHandler ConfirmMessageHandler, log *logrus.Logger) (*ReliableProducer, error) {
 	res := &ReliableProducer{
 		env:                   env,
 		producer:              nil,
@@ -53,6 +54,7 @@ func NewHAProducer(env *stream.Environment, streamName string,
 		mutex:                 &sync.Mutex{},
 		mutexStatus:           &sync.Mutex{},
 		confirmMessageHandler: confirmMessageHandler,
+		log:                   log,
 	}
 	if confirmMessageHandler == nil {
 		return nil, fmt.Errorf("the confirmation message handler is mandatory")
@@ -96,7 +98,7 @@ func (p *ReliableProducer) Send(message message.StreamMessage) error {
 				return stream.FrameTooLarge
 			}
 		default:
-			logs.LogError("[RProducer] - error during send %s", errW.Error())
+			p.log.Errorf("[RProducer] - error during send %s", errW.Error())
 		}
 
 	}
@@ -130,7 +132,7 @@ func (p *ReliableProducer) BatchSend(messages []message.StreamMessage) error {
 				return stream.FrameTooLarge
 			}
 		default:
-			logs.LogError("[RProducer] - error during send %s", errW.Error())
+			p.log.Errorf("[RProducer] - error during send %s", errW.Error())
 		}
 
 	}
@@ -153,11 +155,11 @@ func (p *ReliableProducer) retry() (error, bool) {
 
 	}
 	if exists {
-		logs.LogDebug("[RProducer] - stream %s exists. Reconnecting the producer.", p.streamName)
+		p.log.Debugf("[RProducer] - stream %s exists. Reconnecting the producer.", p.streamName)
 		p.producer.FlushUnConfirmedMessages()
 		return p.newProducer(), true
 	} else {
-		logs.LogError("[RProducer] - stream %s does not exist. Closing..", p.streamName)
+		p.log.Errorf("[RProducer] - stream %s does not exist. Closing..", p.streamName)
 		return stream.StreamDoesNotExist, true
 	}
 }
