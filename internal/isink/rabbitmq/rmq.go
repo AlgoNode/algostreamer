@@ -291,42 +291,52 @@ func appendNotePrefix(tx *utils.Transaction, l int, t amqp91.Table) {
 	t[key] = nb64
 }
 
+func (sink *RmqSink) publishTxn(ctx context.Context, b *isink.BlockWrap, txn *utils.Transaction, intra int, inner int) {
+	jTx, err := utils.EncodeJson(*txn)
+	if err != nil {
+		return
+	}
+
+	hdrs := amqp91.Table{
+		"round":        int64(b.Block.BlockHeader.Round),
+		"txid":         *txn.Id,
+		"intra":        intra,
+		"inner":        inner,
+		"type":         txn.TxType,
+		"publishingId": int64(b.Block.BlockHeader.Round)*10000000 + int64(intra)*100 + int64(inner),
+	}
+
+	appendHeaders(txn, hdrs)
+
+	msg := amqp91.Publishing{
+		ContentType: "application/json",
+		Headers:     hdrs,
+		Body:        jTx,
+	}
+
+	err = sink.tx.ReliablePublishWithContext(ctx, sink.cfg.TxStr, "", false, false, msg)
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[!ERR][RabbitMQ] %s", err)
+	}
+
+}
+
 func (sink *RmqSink) commitPaySet(ctx context.Context, b *isink.BlockWrap) {
 	if b.BlockResponse.Transactions == nil || len(*b.BlockResponse.Transactions) == 0 {
 		return
 	}
 
 	for i := range *b.BlockResponse.Transactions {
-		txn := (*b.BlockResponse.Transactions)[i]
-
-		jTx, err := utils.EncodeJson(txn)
-		if err != nil {
-			continue
+		txn := &(*b.BlockResponse.Transactions)[i]
+		sink.publishTxn(ctx, b, txn, i, 0)
+		if txn.InnerTxns != nil {
+			for ii := range *txn.InnerTxns {
+				itxn := &(*txn.InnerTxns)[ii]
+				itxn.Id = txn.Id
+				sink.publishTxn(ctx, b, itxn, i, ii+1)
+			}
 		}
-
-		hdrs := amqp91.Table{
-			"round":        int64(b.Block.BlockHeader.Round),
-			"txid":         *txn.Id,
-			"intra":        i,
-			"type":         txn.TxType,
-			"publishingId": int64(b.Block.BlockHeader.Round)*100000 + int64(i),
-		}
-
-		appendHeaders(&txn, hdrs)
-
-		msg := amqp91.Publishing{
-			ContentType: "application/json",
-			Headers:     hdrs,
-			Body:        jTx,
-		}
-
-		err = sink.tx.ReliablePublishWithContext(ctx, sink.cfg.TxStr, "", false, false, msg)
-
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[!ERR][RabbitMQ] %s", err)
-			continue
-		}
-
 	}
 }
 
