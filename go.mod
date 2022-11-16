@@ -6,6 +6,7 @@ require (
 	github.com/algorand/go-algorand v0.0.0-20220916205450-5aef24ba27f8
 	github.com/algorand/go-algorand-sdk v1.20.0
 	github.com/algorand/go-codec/codec v1.1.9
+	github.com/algorand/go-deadlock v0.2.2
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/pkg/errors v0.9.1
 	github.com/rabbitmq/amqp091-go v1.5.0
@@ -16,7 +17,6 @@ require (
 require (
 	github.com/algorand/avm-abi v0.1.0 // indirect
 	github.com/algorand/falcon v0.0.0-20220727072124-02a2a64c4414 // indirect
-	github.com/algorand/go-deadlock v0.2.2 // indirect
 	github.com/algorand/msgp v1.1.52 // indirect
 	github.com/algorand/websocket v1.4.5 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect

@@ -365,14 +365,13 @@ func (sink *RmqSink) handleBlockRmq(ctx context.Context, b *isink.BlockWrap) err
 	// Try to commit new block
 	// If successful than we should broadcast to pub/sub
 
-	//TODO disable
-	// publish := sink.commitBlock(ctx, b)
-	// sink.commitPaySet(ctx, b)
+	publish := sink.commitBlock(ctx, b)
+	sink.commitPaySet(ctx, b)
 
 	p := "-"
-	// if publish {
-	// 	p = "+"
-	// }
+	if publish {
+		p = "+"
+	}
 
 	sink.Log.Infof("Block %d@%s processed(%s) in %s (%d txn). QLen:%d", uint64(b.Block.BlockHeader.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), len(sink.Blocks))
 	return nil
