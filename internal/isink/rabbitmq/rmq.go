@@ -43,6 +43,7 @@ type RmqConfig struct {
 	ClientName string   `json:"client"`
 	BlockStr   string   `json:"block-str"`
 	TxStr      string   `json:"tx-hdr"`
+	TxMPStr    string   `json:"txmp-hdr"`
 	StatusStr  string   `json:"status-str"`
 }
 
@@ -145,6 +146,11 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 		return nil, fmt.Errorf("error declaring AMQP91 headers exchange : %v", err)
 	}
 
+	if err := rs.tx.ExchangeDeclare(rs.cfg.TxMPStr, "headers", true, false, false, false, nil); err != nil {
+		return nil, fmt.Errorf("error declaring AMQP91 headers exchange : %v", err)
+	}
+
+	bootNode(rs)
 	return rs, err
 
 }
@@ -358,13 +364,15 @@ func (sink *RmqSink) handleBlockRmq(ctx context.Context, b *isink.BlockWrap) err
 
 	// Try to commit new block
 	// If successful than we should broadcast to pub/sub
-	publish := sink.commitBlock(ctx, b)
-	sink.commitPaySet(ctx, b)
+
+	//TODO disable
+	// publish := sink.commitBlock(ctx, b)
+	// sink.commitPaySet(ctx, b)
 
 	p := "-"
-	if publish {
-		p = "+"
-	}
+	// if publish {
+	// 	p = "+"
+	// }
 
 	sink.Log.Infof("Block %d@%s processed(%s) in %s (%d txn). QLen:%d", uint64(b.Block.BlockHeader.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), len(sink.Blocks))
 	return nil
