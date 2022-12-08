@@ -34,17 +34,17 @@ type SinksCfg struct {
 	Redis *rdb.RedisConfig `json:"redis"`
 }
 
-type SteramerConfig struct {
+type StreamerConfig struct {
 	Algod  *algod.AlgoConfig `json:"algod"`
 	Sinks  SinksCfg          `json:"sinks"`
 	Rego   *rego.OpaConfig   `json:"opa"`
 	Stdout bool              `json:"stdout"`
 }
 
-var defaultConfig = SteramerConfig{}
+var defaultConfig = StreamerConfig{}
 
 // loadConfig loads the configuration from the specified file, merging into the default configuration.
-func LoadConfig() (cfg SteramerConfig, err error) {
+func LoadConfig() (cfg StreamerConfig, err error) {
 	flag.Parse()
 	cfg = defaultConfig
 	err = utils.LoadJSONCFromFile(*cfgFile, &cfg)
