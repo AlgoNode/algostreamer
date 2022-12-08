@@ -1,0 +1,39 @@
+version: '3.7'
+
+services:
+  streamer.devnet:
+    container_name: streamer.devnet
+    build:
+      context: .
+    networks:
+      - devnet
+    depends_on:
+      - redis.devnet
+    volumes:
+      - ./config.jsonc:/app/config.jsonc:ro
+    command: /app/algostream -f /app/config.jsonc
+
+  redis.devnet:
+    container_name: redis.devnet
+    image: 'redis:7-alpine'
+    networks:
+      - devnet
+    # volumes:
+    #   - redis_data:/data
+
+  # Head to `http://localhost:8001` -- provide `redis.devnet` as a Target Host to browse (port: `6379`)
+  insight.redis.devnet:
+    container_name: insight.redis.devnet
+    image: 'redislabs/redisinsight:1.13.1'
+    ports:
+      - 8001:8001
+    networks:
+      - devnet
+    depends_on:
+      - redis.devnet
+
+networks:
+  devnet:
+
+# volumes:
+#   redis_data:

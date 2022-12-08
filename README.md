@@ -10,7 +10,7 @@ Blocks and TXn can be filtered and transformed and redirected using REGO - an Op
 We are here to help your Algorand node shine!
 Go to https://algonode.cloud for more.
 
-## Install 
+## Install
 
 ```Shell
 go get github.com/algonode/algostreamer
@@ -64,6 +64,27 @@ Start streming from the block no 18000000 and then continue with current blocks
 ```Shell
 ./algostreamer -r 18000000 -f config.jsonc -s 2>error.log
 ```
+
+### Options
+
+| Arg   |      Comment      |  Default |
+|----------|:-------------:|:------|
+| `-f <path-to-file>` | config file to load | `config.jsonc` |
+| `-r <number>` | first round to start | `-1 = latest` |
+| `-l <number>` | last round to read | `-1 = no limit` |
+| `-s` | **simple mode** <br/> - print to stdout | `false` |
+
+> **NOTE**: algostreamer **does not** write to Redis when simple mode is used
+
+### Demo
+
+Please run `docker compose up` to see the `algostreamer` in action locally, uses predefined values so it's limited to one command only.
+
+(**NOTE**: Dockerized environment is ephemeral by default, data will be lost when the containers are stopped).
+
+### Redis Insight
+
+Use Redis Insight for the simple and very convenient way to browse the stored data -- spin up the docker environment (`docker compose up`) and head to `http://localhost:8001`; please provide `redis.devnet` as a Database Target Host (port: `6379`, no credentials).
 
 ## License
 

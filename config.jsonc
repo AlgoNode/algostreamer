@@ -1,0 +1,21 @@
+{
+  // Minimum set of options required for the setup to spin up for the demo purposes (`docker compose up`).
+  // See cmd/algostream/config.jsonc.example for more details.
+  "algod": {
+    "queue": 100,
+    "nodes": [
+      {
+        "id": "public-testnet-node",
+        "address": "https://testnet-api.algonode.cloud"
+      }
+    ]
+  },
+  "sinks": {
+    "redis": {
+      "addr": "redis.devnet:6379",
+      "user": "",
+      "pass": "",
+      "db": 0
+    }
+  }
+}
