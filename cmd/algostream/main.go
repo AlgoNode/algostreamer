@@ -24,6 +24,7 @@ import (
 
 	"github.com/algonode/algostreamer/internal/algod"
 	"github.com/algonode/algostreamer/internal/config"
+	"github.com/algonode/algostreamer/internal/mqtt"
 	"github.com/algonode/algostreamer/internal/rdb"
 	"github.com/algonode/algostreamer/internal/simple"
 )
@@ -51,30 +52,39 @@ func main() {
 		}()
 	}
 
-	if !cfg.Stdout {
+	if !cfg.Sinks.Stdout.Enable && !cfg.Sinks.Redis.Enable && !cfg.Sinks.MQTT.Enable {
+		fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] No Sink has been enabled. Exiting.\n")
+		return
+	}
+
+	// Need to figure some sort of channel broadcasting for a single stream
+
+	if cfg.Sinks.Stdout.Enable {
+		//spawn a block stream fetcher that never fails
+		blocks, status, err := algod.AlgoStreamer(ctx, cfg.Algod)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[!ERR][_MAIN][STDOUT] error getting algod stream: %s\n", err)
+			return
+		}
+		err = simple.SimplePusher(ctx, blocks, status)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] error setting up simple mode: %s\n", err)
+			return
+		}
+	}
+
+	if cfg.Sinks.Redis.Enable {
 		if lastBlock, err := rdb.RedisGetLastBlock(ctx, cfg.Sinks.Redis); err == nil {
 			if int64(lastBlock) > cfg.Algod.FRound {
 				cfg.Algod.FRound = int64(lastBlock)
 				fmt.Fprintf(os.Stderr, "[INFO][_MAIN] Reasuming from last redis commited block %d\n", lastBlock)
 			}
 		}
-	}
-
-	//spawn a block stream fetcher that never fails
-	blocks, status, err := algod.AlgoStreamer(ctx, cfg.Algod)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] error getting algod stream: %s\n", err)
-		return
-	}
-
-	if cfg.Stdout {
-		err = simple.SimplePusher(ctx, blocks, status)
+		blocks, status, err := algod.AlgoStreamer(ctx, cfg.Algod)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] error setting up simple mode: %s\n", err)
+			fmt.Fprintf(os.Stderr, "[!ERR][_MAIN][REDIS] error getting algod stream: %s\n", err)
 			return
 		}
-	} else {
-		//spawn a redis pusher
 		err = rdb.RedisPusher(ctx, cfg.Sinks.Redis, blocks, status)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] error setting up redis: %s\n", err)
@@ -82,7 +92,19 @@ func main() {
 		}
 	}
 
+	if cfg.Sinks.MQTT.Enable {
+		blocks, status, err := algod.AlgoStreamer(ctx, cfg.Algod)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[!ERR][_MAIN][MQTT] error getting algod stream: %s\n", err)
+			return
+		}
+		err = mqtt.MQTTPusher(ctx, cfg.Sinks.MQTT, blocks, status)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] error setting up mqtt: %s\n", err)
+			return
+		}
+	}
+
 	//Wait for the end of the Algoverse
 	<-ctx.Done()
-
 }

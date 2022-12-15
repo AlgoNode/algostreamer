@@ -52,15 +52,15 @@ type Status struct {
 }
 
 type BlockWrap struct {
-	Block    *types.Block `json: "block"`
+	Block    *types.Block `json:"block"`
 	BlockRaw []byte       `json:"-"`
 	Src      string       `json:"src"`
 	Ts       time.Time    `json:"ts"`
 }
 
-//globalMaxBlock holds the highest read block across all connected nodes
-//writes must use atomic interface
-//reads are safe as the var is 64bit aligned
+// globalMaxBlock holds the highest read block across all connected nodes
+// writes must use atomic interface
+// reads are safe as the var is 64bit aligned
 var globalMaxBlock uint64 = 0
 
 func AlgoStreamer(ctx context.Context, acfg *AlgoConfig) (chan *BlockWrap, chan *Status, error) {
@@ -123,7 +123,7 @@ func algodStreamNode(ctx context.Context, acfg *AlgoConfig, idx int, bchan chan 
 		utils.Backoff(ctx, func(actx context.Context) error {
 			ns, err := algodClient.Status().Do(actx)
 			if err != nil {
-				return fmt.Errorf("[!ERR][ALGOD][%s] %s\n", cfg.Id, err.Error())
+				return fmt.Errorf("[!ERR][ALGOD][%s] %s", cfg.Id, err.Error())
 			}
 			nodeStatus = &ns
 			return nil

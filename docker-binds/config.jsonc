@@ -11,11 +11,26 @@
     ]
   },
   "sinks": {
+    "stdout": {
+      "enable": false
+    },
     "redis": {
+      "enable": true,
       "addr": "redis.devnet:6379",
       "user": "",
       "pass": "",
       "db": 0
+    },
+    "mqtt": {
+      "enable": true,
+      "broker": "mqtt.devnet",
+      "port": 1883,
+      "clientid": "algostreamer",
+      "user": "",
+      "pass": "",
+      "topic": "public/testnet",
+      "retained": false,
+      "qos": 2
     }
   }
 }

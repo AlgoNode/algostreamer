@@ -20,8 +20,10 @@ import (
 	"fmt"
 
 	"github.com/algonode/algostreamer/internal/algod"
+	"github.com/algonode/algostreamer/internal/mqtt"
 	"github.com/algonode/algostreamer/internal/rdb"
 	"github.com/algonode/algostreamer/internal/rego"
+	"github.com/algonode/algostreamer/internal/simple"
 	"github.com/algonode/algostreamer/internal/utils"
 )
 
@@ -31,7 +33,9 @@ var lastRound = flag.Int64("l", -1, "last round to read [-1 = no limit]")
 var simpleFlag = flag.Bool("s", false, "simple mode - just sending blocks in JSON format to stdout")
 
 type SinksCfg struct {
-	Redis *rdb.RedisConfig `json:"redis"`
+	Stdout *simple.StdoutConfig `json:"stdout"`
+	Redis  *rdb.RedisConfig     `json:"redis"`
+	MQTT   *mqtt.MQTTConfig     `json:"mqtt"`
 }
 
 type StreamerConfig struct {
@@ -57,7 +61,10 @@ func LoadConfig() (cfg StreamerConfig, err error) {
 	}
 	cfg.Algod.FRound = *firstRound
 	cfg.Algod.LRound = *lastRound
-	cfg.Stdout = *simpleFlag
+
+	if !cfg.Sinks.Stdout.Enable && *simpleFlag {
+		cfg.Sinks.Stdout.Enable = *simpleFlag
+	}
 
 	return cfg, err
 }

@@ -1,4 +1,4 @@
-version: '3.7'
+version: '3.8'
 
 services:
   streamer.devnet:
@@ -10,7 +10,10 @@ services:
     depends_on:
       - redis.devnet
     volumes:
-      - ./config.jsonc:/app/config.jsonc:ro
+      - type: bind
+        source: ./docker-binds/config.jsonc
+        target: /app/config.jsonc
+        read_only: true
     command: /app/algostream -f /app/config.jsonc
 
   redis.devnet:
@@ -18,22 +21,49 @@ services:
     image: 'redis:7-alpine'
     networks:
       - devnet
-    # volumes:
-    #   - redis_data:/data
+    ports:
+      - target: 6379
+        published: 6379
+        protocol: tcp
+        mode: host
 
   # Head to `http://localhost:8001` -- provide `redis.devnet` as a Target Host to browse (port: `6379`)
   insight.redis.devnet:
     container_name: insight.redis.devnet
     image: 'redislabs/redisinsight:1.13.1'
     ports:
-      - 8001:8001
+      - target: 8001
+        published: 8001
+        protocol: tcp
+        mode: host
     networks:
       - devnet
     depends_on:
       - redis.devnet
 
+  # Browser: https://mqtt-explorer.com/
+  mqtt.devnet:
+    container_name: mqtt.devnet
+    image: eclipse-mosquitto:2.0.15
+    networks:
+      - devnet
+    ports:
+      - target: 1883
+        published: 1883
+        protocol: tcp
+        mode: host
+    volumes:
+      - type: bind
+        source: ./docker-binds/mosquitto.conf
+        target: /mosquitto/config/mosquitto.conf
+        read_only: true
+      # - type: bind
+      #   source: mosquitto-data
+      #   target: /mosquitto/data
+      #   read_only: false
+
 networks:
   devnet:
 
 # volumes:
-#   redis_data:
+#   mosquitto-data:

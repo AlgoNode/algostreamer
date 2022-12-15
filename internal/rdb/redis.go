@@ -40,6 +40,7 @@ const (
 )
 
 type RedisConfig struct {
+	Enable   bool   `json:"enable"`
 	Addr     string `json:"addr"`
 	Username string `json:"user"`
 	Password string `json:"pass"`
@@ -105,15 +106,15 @@ func RedisGetLastBlock(ctx context.Context, cfg *RedisConfig) (uint64, error) {
 
 	msg, err := rc.XRevRangeN(ctx, "xblock-v2", "+", "-", 1).Result()
 	if err != nil || len(msg) < 1 {
-		return 0, fmt.Errorf("[REDIS] error getting last element \n", err)
+		return 0, fmt.Errorf("[REDIS] error getting last element - %s", err)
 	}
 	a := strings.Split(msg[0].ID, "-")
 	if len(a) < 1 {
-		return 0, fmt.Errorf("[REDIS] error getting last element - invalid block id %s\n", msg[0].ID)
+		return 0, fmt.Errorf("[REDIS] error getting last element - invalid block id %s", msg[0].ID)
 	}
 	r, err := strconv.ParseUint(a[0], 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("[REDIS] error getting last element - invalid block id %s\n", msg[0].ID)
+		return 0, fmt.Errorf("[REDIS] error getting last element - invalid block id %s", msg[0].ID)
 	}
 
 	return r, nil
@@ -403,6 +404,13 @@ func handleBlockRedis(ctx context.Context, b *algod.BlockWrap, rc *redis.Client,
 		p = "+"
 	}
 
-	fmt.Fprintf(os.Stderr, "[INFO][REDIS] Block %d@%s processed(%s) in %s (%d txn). QLen:%d\n", uint64(b.Block.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), qlen)
+	fmt.Fprintf(os.Stderr,
+		"[INFO][REDIS] Block %d@%s processed(%s) in %s (%d txn). QLen:%d\n",
+		uint64(b.Block.Round),
+		time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339),
+		p,
+		time.Since(start),
+		len(b.Block.Payset),
+		qlen)
 	return nil
 }

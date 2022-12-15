@@ -25,6 +25,10 @@ import (
 	"github.com/algorand/go-codec/codec"
 )
 
+type StdoutConfig struct {
+	Enable bool `json:"enable"`
+}
+
 func handleBlockStdOut(b *algod.BlockWrap) error {
 	var output []byte
 	enc := codec.NewEncoderBytes(&output, protocol.JSONStrictHandle)
