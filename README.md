@@ -86,6 +86,16 @@ Please run `docker compose up` to see the `algostreamer` in action locally, uses
 
 Use Redis Insight for the simple and very convenient way to browse the stored data -- spin up the docker environment (`docker compose up`) and head to `http://localhost:8001`; please provide `redis.devnet` as a Database Target Host (port: `6379`, no credentials).
 
+### MQTT
+
+Introduced basic MQTT support - essentially publishing JSON objects as coming from a stream to the selected topic.
+Dockerized MQTT Broker ([Eclipse Mosquitto](https://mosquitto.org)) as part of the demo is there for user's convenience to test the solution.
+
+One can easily subscribe to the selected topic using either:
+
+- the mosquitto docker image -- assuming the port is properly forwarded (ie. `docker run --rm -it eclipse-mosquitto:2.0.15 mosquitto_sub -v -t 'public/testnet' -h localhost -p 1883`)
+- [mqtt explorer](https://mqtt-explorer.com/)
+
 ## License
 
 Copyright (C) 2022 AlgoNode Org.
