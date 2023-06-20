@@ -36,6 +36,19 @@ func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
 		UpgradePropose: strPtr(string(blockHeader.UpgradePropose)),
 	}
 
+	// var partUpdates *bookkeeping.ParticipationUpdates
+	// if len(blockHeader.ExpiredParticipationAccounts) > 0 {
+	// 	addrs := make([]string, len(blockHeader.ExpiredParticipationAccounts))
+	// 	for i := 0; i < len(addrs); i++ {
+	// 		addrs[i] = blockHeader.ExpiredParticipationAccounts[i].String()
+	// 	}
+	// 	partUpdates = &bookkeeping.ParticipationUpdates{
+	// 		ExpiredParticipationAccounts: strArrayPtr(addrs),
+	// 	}
+	// } else {
+	// 	partUpdates = nil
+	// }
+
 	orderedTrackingTypes := make([]protocol.StateProofType, len(blockHeader.StateProofTracking))
 	trackingArray := make([]StateProofTracking, len(blockHeader.StateProofTracking))
 	elems := 0
