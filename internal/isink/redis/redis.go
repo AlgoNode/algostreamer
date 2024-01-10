@@ -29,7 +29,7 @@ import (
 
 	"github.com/algonode/algostreamer/internal/config"
 	"github.com/algonode/algostreamer/internal/isink"
-	"github.com/algorand/go-algorand-sdk/types"
+	"github.com/algorand/go-algorand-sdk/v2/types"
 	"github.com/sirupsen/logrus"
 
 	"github.com/go-redis/redis/v8"

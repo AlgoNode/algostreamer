@@ -95,10 +95,10 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 		return nil, err
 	}
 
-	if err = rs.env.DeclareStream(rs.cfg.StatusStr,
-		stream.NewStreamOptions().SetMaxLengthBytes(stream.ByteCapacity{}.KB(20)).SetMaxSegmentSizeBytes(stream.ByteCapacity{}.KB(10))); err != nil {
-		return nil, fmt.Errorf("error declaring stream: %s : %v", rs.cfg.StatusStr, err)
-	}
+	// if err = rs.env.DeclareStream(rs.cfg.StatusStr,
+	// 	stream.NewStreamOptions().SetMaxLengthBytes(stream.ByteCapacity{}.KB(20)).SetMaxSegmentSizeBytes(stream.ByteCapacity{}.KB(10))); err != nil {
+	// 	return nil, fmt.Errorf("error declaring stream: %s : %v", rs.cfg.StatusStr, err)
+	// }
 
 	rs.status, err = NewHAProducer(
 		rs.env,
@@ -111,10 +111,10 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 		return nil, fmt.Errorf("error creating stream producer : %s : %v", rs.cfg.StatusStr, err)
 	}
 
-	if err = rs.env.DeclareStream(rs.cfg.BlockStr,
-		stream.NewStreamOptions().SetMaxAge(time.Hour*24*14)); err != nil {
-		return nil, fmt.Errorf("error declaring stream: %s : %v", rs.cfg.BlockStr, err)
-	}
+	// if err = rs.env.DeclareStream(rs.cfg.BlockStr,
+	// 	stream.NewStreamOptions().SetMaxAge(time.Hour*24*14)); err != nil {
+	// 	return nil, fmt.Errorf("error declaring stream: %s : %v", rs.cfg.BlockStr, err)
+	// }
 
 	rs.block, err = NewHAProducer(
 		rs.env,
@@ -150,7 +150,7 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 		return nil, fmt.Errorf("error declaring AMQP91 headers exchange : %v", err)
 	}
 
-	bootNode(rs)
+	//bootNode(rs)
 	return rs, err
 
 }
@@ -196,21 +196,21 @@ func (sink *RmqSink) GetLastBlock(ctx context.Context) (uint64, error) {
 func (sink *RmqSink) handleStatusUpdate(ctx context.Context, status *isink.Status) error {
 
 	if sink.status == nil {
-		err := fmt.Errorf("Status sink not ready")
+		err := fmt.Errorf("status sink not ready")
 		sink.Log.WithError(err).Error()
 		return err
 	}
 
 	jmsg, err := json.Marshal(*status)
 	if err != nil {
-		sink.Log.WithError(err).Error("Error marshaling status update")
+		sink.Log.WithError(err).Error("error marshaling status update")
 		return err
 	}
 
 	msg := amqp.NewMessage(jmsg)
 	msg.SetPublishingId(int64(status.LastRound))
 	if err := sink.status.Send(msg); err != nil {
-		sink.Log.WithError(err).Error("Error marshaling status update")
+		sink.Log.WithError(err).Error("error marshaling status update")
 	}
 
 	return nil

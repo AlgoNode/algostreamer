@@ -176,42 +176,42 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint
 		application = &a
 	}
 
-	var localStateDelta *[]AccountStateDelta
-	type tuple struct {
-		key     uint64
-		address basics.Address
-	}
-	if len(stxn.ApplyData.EvalDelta.LocalDeltas) > 0 {
-		keys := make([]tuple, 0)
-		for k := range stxn.ApplyData.EvalDelta.LocalDeltas {
-			if k == 0 {
-				keys = append(keys, tuple{
-					key:     0,
-					address: stxn.Txn.Sender,
-				})
-			} else {
-				addr := basics.Address{}
-				copy(addr[:], stxn.Txn.Accounts[k-1][:])
-				keys = append(keys, tuple{
-					key:     k,
-					address: addr,
-				})
-			}
-		}
-		sort.Slice(keys, func(i, j int) bool { return keys[i].key < keys[j].key })
-		d := make([]AccountStateDelta, 0)
-		for _, k := range keys {
-			v := stxn.ApplyData.EvalDelta.LocalDeltas[k.key]
-			delta := stateDeltaToStateDelta(v)
-			if delta != nil {
-				d = append(d, AccountStateDelta{
-					Address: k.address.String(),
-					Delta:   *delta,
-				})
-			}
-		}
-		localStateDelta = &d
-	}
+	// var localStateDelta *[]AccountStateDelta
+	// type tuple struct {
+	// 	key     uint64
+	// 	address basics.Address
+	// }
+	// if len(stxn.ApplyData.EvalDelta.LocalDeltas) > 0 {
+	// 	keys := make([]tuple, 0)
+	// 	for k := range stxn.ApplyData.EvalDelta.LocalDeltas {
+	// 		if k == 0 {
+	// 			keys = append(keys, tuple{
+	// 				key:     0,
+	// 				address: stxn.Txn.Sender,
+	// 			})
+	// 		} else {
+	// 			addr := basics.Address{}
+	// 			copy(addr[:], stxn.Txn.Accounts[k-1][:])
+	// 			keys = append(keys, tuple{
+	// 				key:     k,
+	// 				address: addr,
+	// 			})
+	// 		}
+	// 	}
+	// 	sort.Slice(keys, func(i, j int) bool { return keys[i].key < keys[j].key })
+	// 	d := make([]AccountStateDelta, 0)
+	// 	for _, k := range keys {
+	// 		v := stxn.ApplyData.EvalDelta.LocalDeltas[k.key]
+	// 		delta := stateDeltaToStateDelta(v)
+	// 		if delta != nil {
+	// 			d = append(d, AccountStateDelta{
+	// 				Address: k.address.String(),
+	// 				Delta:   *delta,
+	// 			})
+	// 		}
+	// 	}
+	// 	localStateDelta = &d
+	// }
 
 	var logs *[][]byte
 	if len(stxn.ApplyData.EvalDelta.Logs) > 0 {
@@ -273,7 +273,7 @@ func signedTxnWithAdToTransaction(stxn *transactions.SignedTxnWithAD, intra uint
 		TxType:                   string(stxn.Txn.Type),
 		RekeyTo:                  addrPtr(stxn.Txn.RekeyTo),
 		GlobalStateDelta:         stateDeltaToStateDelta(stxn.EvalDelta.GlobalDelta),
-		LocalStateDelta:          localStateDelta,
+		//LocalStateDelta:          localStateDelta,
 		Logs:                     logs,
 		InnerTxns:                inners,
 	}

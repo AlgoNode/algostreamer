@@ -25,16 +25,16 @@ import (
 	"github.com/algonode/algostreamer/internal/config"
 	"github.com/algonode/algostreamer/internal/isink"
 	"github.com/algonode/algostreamer/internal/utils"
-	"github.com/algorand/go-algorand-sdk/client/v2/algod"
-	"github.com/algorand/go-algorand-sdk/client/v2/common/models"
+	"github.com/algorand/go-algorand-sdk/v2/client/v2/algod"
+	"github.com/algorand/go-algorand-sdk/v2/client/v2/common/models"
 	"github.com/algorand/go-algorand/protocol"
 	"github.com/algorand/go-algorand/rpcs"
 	"github.com/sirupsen/logrus"
 )
 
-//globalMaxBlock holds the highest read block across all connected nodes
-//writes must use atomic interface
-//reads are safe as the var is 64bit aligned
+// globalMaxBlock holds the highest read block across all connected nodes
+// writes must use atomic interface
+// reads are safe as the var is 64bit aligned
 var globalMaxBlock uint64 = 0
 
 func AlgoStreamer(ctx context.Context, acfg *config.AlgoConfig, log *logrus.Logger) (chan *isink.BlockWrap, chan *isink.Status, error) {
