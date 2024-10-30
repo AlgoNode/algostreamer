@@ -22,23 +22,14 @@ import (
 
 	"github.com/algonode/algostreamer/internal/config"
 	"github.com/algonode/algostreamer/internal/isink"
-	"github.com/algorand/go-algorand/protocol"
 	"github.com/sirupsen/logrus"
-
-	"github.com/algorand/go-codec/codec"
 )
 
 type StdoutConfig struct {
 }
 
 func handleBlockStdOut(b *isink.BlockWrap) error {
-	var output []byte
-	enc := codec.NewEncoderBytes(&output, protocol.JSONStrictHandle)
-	err := enc.Encode(b)
-	if err != nil {
-		return err
-	}
-	fmt.Println(string(output))
+	fmt.Println(b.BlockJsonIDX)
 	return nil
 }
 

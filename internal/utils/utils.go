@@ -25,8 +25,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/algorand/go-codec/codec"
-
 	"github.com/tidwall/jsonc"
 )
 
@@ -111,25 +109,4 @@ func MaybeFail(err error, errfmt string, params ...interface{}) {
 	fmt.Fprintf(os.Stderr, errfmt, params...)
 	fmt.Fprintf(os.Stderr, "\nError: %v\n", err)
 	os.Exit(1)
-}
-
-var oneLineJSONCodecHandle *codec.JsonHandle
-
-// JSONOneLine converts an object into JSON
-func JSONOneLine(obj interface{}) string {
-	var b []byte
-	enc := codec.NewEncoderBytes(&b, oneLineJSONCodecHandle)
-	enc.MustEncode(obj)
-	return string(b)
-}
-
-func init() {
-	oneLineJSONCodecHandle = new(codec.JsonHandle)
-	oneLineJSONCodecHandle.ErrorIfNoField = true
-	oneLineJSONCodecHandle.ErrorIfNoArrayExpand = true
-	oneLineJSONCodecHandle.Canonical = true
-	oneLineJSONCodecHandle.RecursiveEmptyCheck = true
-	oneLineJSONCodecHandle.HTMLCharsAsIs = true
-	oneLineJSONCodecHandle.Indent = 0
-	oneLineJSONCodecHandle.MapKeyAsString = true
 }
