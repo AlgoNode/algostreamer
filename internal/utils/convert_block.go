@@ -139,6 +139,8 @@ func genTransactions(block *sdk.Block) ([]generated.Transaction, error) {
 		if err != nil {
 			return nil, err
 		}
+		stxnad.Txn.GenesisHash = block.BlockHeader.GenesisHash
+		stxnad.Txn.GenesisID = block.BlockHeader.GenesisID
 
 		txid := crypto.TransactionIDString(stxnad.Txn)
 		tx.Id = &txid
