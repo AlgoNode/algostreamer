@@ -156,7 +156,7 @@ func (p *ReliableProducer) retry() (error, bool) {
 	}
 	if exists {
 		p.log.Debugf("[RProducer] - stream %s exists. Reconnecting the producer.", p.streamName)
-		p.producer.FlushUnConfirmedMessages()
+		//p.producer.FlushUnConfirmedMessages()
 		return p.newProducer(), true
 	} else {
 		p.log.Errorf("[RProducer] - stream %s does not exist. Closing..", p.streamName)
@@ -196,7 +196,7 @@ func (p *ReliableProducer) GetLastPublishingId() (int64, error) {
 
 func (p *ReliableProducer) Close() error {
 	p.setStatus(StatusClosed)
-	p.producer.FlushUnConfirmedMessages()
+	//p.producer.FlushUnConfirmedMessages()
 	err := p.producer.Close()
 	if err != nil {
 		return err

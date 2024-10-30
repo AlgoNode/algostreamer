@@ -1,19 +1,17 @@
 package utils
 
 import (
-	"fmt"
 	"sort"
 
-	"github.com/algorand/go-algorand/data/bookkeeping"
-	"github.com/algorand/go-algorand/data/transactions"
-	"github.com/algorand/go-algorand/protocol"
+	"github.com/algorand/go-algorand-sdk/v2/crypto"
+	sdk "github.com/algorand/go-algorand-sdk/v2/types"
+	"github.com/algorand/indexer/v3/api/generated/v2"
 )
 
-func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
-	var ret BlockResponse
+func GenerateBlock(block *sdk.Block) (*generated.Block, error) {
 	blockHeader := block.BlockHeader
 
-	rewards := BlockRewards{
+	rewards := generated.BlockRewards{
 		FeeSink:                 blockHeader.FeeSink.String(),
 		RewardsCalculationRound: uint64(blockHeader.RewardsRecalculationRound),
 		RewardsLevel:            blockHeader.RewardsLevel,
@@ -22,7 +20,7 @@ func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
 		RewardsResidue:          blockHeader.RewardsResidue,
 	}
 
-	upgradeState := BlockUpgradeState{
+	upgradeState := generated.BlockUpgradeState{
 		CurrentProtocol:        string(blockHeader.CurrentProtocol),
 		NextProtocol:           strPtr(string(blockHeader.NextProtocol)),
 		NextProtocolApprovals:  uint64Ptr(blockHeader.NextProtocolApprovals),
@@ -30,27 +28,34 @@ func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
 		NextProtocolVoteBefore: uint64Ptr(uint64(blockHeader.NextProtocolVoteBefore)),
 	}
 
-	upgradeVote := BlockUpgradeVote{
+	upgradeVote := generated.BlockUpgradeVote{
 		UpgradeApprove: boolPtr(blockHeader.UpgradeApprove),
 		UpgradeDelay:   uint64Ptr(uint64(blockHeader.UpgradeDelay)),
 		UpgradePropose: strPtr(string(blockHeader.UpgradePropose)),
 	}
 
-	// var partUpdates *bookkeeping.ParticipationUpdates
-	// if len(blockHeader.ExpiredParticipationAccounts) > 0 {
-	// 	addrs := make([]string, len(blockHeader.ExpiredParticipationAccounts))
-	// 	for i := 0; i < len(addrs); i++ {
-	// 		addrs[i] = blockHeader.ExpiredParticipationAccounts[i].String()
-	// 	}
-	// 	partUpdates = &bookkeeping.ParticipationUpdates{
-	// 		ExpiredParticipationAccounts: strArrayPtr(addrs),
-	// 	}
-	// } else {
-	// 	partUpdates = nil
-	// }
+	var partUpdates *generated.ParticipationUpdates = &generated.ParticipationUpdates{}
+	if len(blockHeader.ExpiredParticipationAccounts) > 0 {
+		addrs := make([]string, len(blockHeader.ExpiredParticipationAccounts))
+		for i := 0; i < len(addrs); i++ {
+			addrs[i] = blockHeader.ExpiredParticipationAccounts[i].String()
+		}
+		partUpdates.ExpiredParticipationAccounts = strArrayPtr(addrs)
+	}
+	if len(blockHeader.AbsentParticipationAccounts) > 0 {
+		addrs := make([]string, len(blockHeader.AbsentParticipationAccounts))
+		for i := 0; i < len(addrs); i++ {
+			addrs[i] = blockHeader.AbsentParticipationAccounts[i].String()
+		}
+		partUpdates.AbsentParticipationAccounts = strArrayPtr(addrs)
+	}
+	if *partUpdates == (generated.ParticipationUpdates{}) {
+		partUpdates = nil
+	}
 
-	orderedTrackingTypes := make([]protocol.StateProofType, len(blockHeader.StateProofTracking))
-	trackingArray := make([]StateProofTracking, len(blockHeader.StateProofTracking))
+	// order these so they're deterministic
+	orderedTrackingTypes := make([]sdk.StateProofType, len(blockHeader.StateProofTracking))
+	trackingArray := make([]generated.StateProofTracking, len(blockHeader.StateProofTracking))
 	elems := 0
 	for key := range blockHeader.StateProofTracking {
 		orderedTrackingTypes[elems] = key
@@ -59,19 +64,24 @@ func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
 	sort.Slice(orderedTrackingTypes, func(i, j int) bool { return orderedTrackingTypes[i] < orderedTrackingTypes[j] })
 	for i := 0; i < len(orderedTrackingTypes); i++ {
 		stpfTracking := blockHeader.StateProofTracking[orderedTrackingTypes[i]]
-		thing1 := StateProofTracking{
+		thing1 := generated.StateProofTracking{
 			NextRound:         uint64Ptr(uint64(stpfTracking.StateProofNextRound)),
 			Type:              uint64Ptr(uint64(orderedTrackingTypes[i])),
 			VotersCommitment:  byteSliceOmitZeroPtr(stpfTracking.StateProofVotersCommitment),
-			OnlineTotalWeight: uint64Ptr(stpfTracking.StateProofOnlineTotalWeight.Raw),
+			OnlineTotalWeight: uint64Ptr(uint64(stpfTracking.StateProofOnlineTotalWeight)),
 		}
 		trackingArray[orderedTrackingTypes[i]] = thing1
 	}
 
-	ret = BlockResponse{
+	ret := generated.Block{
+		Bonus:                  uint64PtrOrNil(uint64(blockHeader.Bonus)),
+		FeesCollected:          uint64PtrOrNil(uint64(blockHeader.FeesCollected)),
 		GenesisHash:            blockHeader.GenesisHash[:],
 		GenesisId:              blockHeader.GenesisID,
+		ParticipationUpdates:   partUpdates,
 		PreviousBlockHash:      blockHeader.Branch[:],
+		Proposer:               addrPtr(block.BlockHeader.Proposer),
+		ProposerPayout:         uint64PtrOrNil(uint64(blockHeader.ProposerPayout)),
 		Rewards:                &rewards,
 		Round:                  uint64(blockHeader.Round),
 		Seed:                   blockHeader.Seed[:],
@@ -85,7 +95,7 @@ func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
 		UpgradeVote:            &upgradeVote,
 	}
 
-	txn, err := genTransactions(block, block.Payset)
+	txn, err := genTransactions(block)
 	if err != nil {
 		return nil, err
 	}
@@ -95,29 +105,15 @@ func GenerateBlock(block *bookkeeping.Block) (*BlockResponse, error) {
 	return &ret, nil
 }
 
-func genTransactions(block *bookkeeping.Block, modifiedTxns []transactions.SignedTxnInBlock) ([]Transaction, error) {
+func genTransactions(block *sdk.Block) ([]generated.Transaction, error) {
 	intra := uint(0)
-	results := make([]Transaction, 0)
-	for idx, stib := range modifiedTxns {
-		// Do not include inner transactions.
-		// if txrow.RootTxn != nil {
-		// 	continue
-		// }
+	results := make([]generated.Transaction, 0)
+	for idx, stib := range block.Payset {
 
-		var stxnad transactions.SignedTxnWithAD
+		var stxnad sdk.SignedTxnWithAD
 		var err error
-		// This function makes sure to set correct genesis information so we can get the
-		// correct transaction hash.
-		stxnad.SignedTxn, stxnad.ApplyData, err = block.BlockHeader.DecodeSignedTxn(stib)
-		if err != nil {
-			return nil, fmt.Errorf("decode signed txn err: %w", err)
-		}
+		stxnad = stib.SignedTxnWithAD
 
-		// txn := &stxnad.Txn
-		// typeenum, ok := idb.GetTypeEnum(txn.Type)
-		// if !ok {
-		// 	return nil, fmt.Errorf("get type enum")
-		// }
 		assetid, err := transactionAssetID(&stxnad, intra, block)
 		if err != nil {
 			return nil, err
@@ -132,7 +128,7 @@ func genTransactions(block *bookkeeping.Block, modifiedTxns []transactions.Signe
 			AssetCloseAmount: block.Payset[idx].ApplyData.AssetClosingAmount,
 		}
 
-		sig := TransactionSignature{
+		sig := generated.TransactionSignature{
 			Logicsig: lsigToTransactionLsig(stxnad.Lsig),
 			Multisig: msigToTransactionMsig(stxnad.Msig),
 			Sig:      sigToTransactionSig(stxnad.Sig),
@@ -144,7 +140,7 @@ func genTransactions(block *bookkeeping.Block, modifiedTxns []transactions.Signe
 			return nil, err
 		}
 
-		txid := stxnad.Txn.ID().String()
+		txid := crypto.TransactionIDString(stxnad.Txn)
 		tx.Id = &txid
 		tx.Signature = &sig
 

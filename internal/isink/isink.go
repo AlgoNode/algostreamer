@@ -5,9 +5,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/algonode/algostreamer/internal/utils"
-	"github.com/algorand/go-algorand-sdk/v2/types"
-	"github.com/algorand/go-algorand/data/bookkeeping"
+	"github.com/algorand/go-algorand-sdk/v2/client/v2/common/models"
+	"github.com/algorand/indexer/v3/api/generated/v2"
+
+	sdk "github.com/algorand/go-algorand-sdk/v2/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -19,21 +20,21 @@ type Status struct {
 }
 
 type BlockWrap struct {
-	Block         *bookkeeping.Block
-	BlockResponse *utils.BlockResponse
+	Block         *sdk.Block
+	BlockResponse *models.BlockResponse
+	BlockIdx      *generated.BlockResponse
 	BlockRaw      []byte
-	BlockJsonNode string
 	BlockJsonIDX  string
 	Src           string
 	Ts            time.Time
 }
 
 type TxWrap struct {
-	TxId  string                  `json:"txid"`
-	Txn   *types.SignedTxnInBlock `json:"txn"`
-	Round uint64                  `json:"round"`
-	Intra int                     `json:"intra"`
-	Key   string                  `json:"xtx-v2"`
+	TxId  string                `json:"txid"`
+	Txn   *sdk.SignedTxnInBlock `json:"txn"`
+	Round uint64                `json:"round"`
+	Intra int                   `json:"intra"`
+	Key   string                `json:"xtx-v2"`
 }
 
 type SinkCommon struct {

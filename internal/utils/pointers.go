@@ -3,12 +3,12 @@ package utils
 import (
 	"time"
 
-	"github.com/algorand/go-algorand/data/basics"
+	sdk "github.com/algorand/go-algorand-sdk/v2/types"
 )
 
-////////////////////////////////
+// //////////////////////////////
 // Safe dereference wrappers. //
-////////////////////////////////
+// //////////////////////////////
 func uintOrDefault(x *uint64) uint64 {
 	if x != nil {
 		return *x
@@ -37,9 +37,9 @@ func boolOrDefault(b *bool) bool {
 	return false
 }
 
-////////////////////////////
+// //////////////////////////
 // Safe pointer wrappers. //
-////////////////////////////
+// //////////////////////////
 func uint64Ptr(x uint64) *uint64 {
 	return &x
 }
@@ -81,7 +81,7 @@ func timePtr(x time.Time) *time.Time {
 	return &x
 }
 
-func addrPtr(x basics.Address) *string {
+func addrPtr(x sdk.Address) *string {
 	if x.IsZero() {
 		return nil
 	}
@@ -108,8 +108,8 @@ func strArrayPtr(x []string) *[]string {
 	return &x
 }
 
-func addrSlice(x basics.Address) []byte {
-	xx := new(basics.Address)
+func addrSlice(x sdk.Address) []byte {
+	xx := new(sdk.Address)
 	*xx = x
 	return xx[:]
 }

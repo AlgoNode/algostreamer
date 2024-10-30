@@ -28,6 +28,7 @@ import (
 	"github.com/algonode/algostreamer/internal/config"
 	"github.com/algonode/algostreamer/internal/isink"
 	"github.com/algonode/algostreamer/internal/utils"
+	"github.com/algorand/indexer/v3/api/generated/v2"
 
 	"github.com/sirupsen/logrus"
 
@@ -216,7 +217,7 @@ func (sink *RmqSink) handleStatusUpdate(ctx context.Context, status *isink.Statu
 	return nil
 }
 
-func appendHeaders(tx *utils.Transaction, t amqp91.Table) {
+func appendHeaders(tx *generated.Transaction, t amqp91.Table) {
 
 	addACC := func(a *string) {
 		if a == nil || *a == "" {
@@ -284,7 +285,7 @@ func appendHeaders(tx *utils.Transaction, t amqp91.Table) {
 	appendNotePrefix(tx, 10, t)
 }
 
-func appendNotePrefix(tx *utils.Transaction, l int, t amqp91.Table) {
+func appendNotePrefix(tx *generated.Transaction, l int, t amqp91.Table) {
 	if tx.Note == nil || len(*tx.Note) == 0 {
 		return
 	}
@@ -297,7 +298,7 @@ func appendNotePrefix(tx *utils.Transaction, l int, t amqp91.Table) {
 	t[key] = nb64
 }
 
-func (sink *RmqSink) publishTxn(ctx context.Context, b *isink.BlockWrap, txn *utils.Transaction, intra int, inner int) {
+func (sink *RmqSink) publishTxn(ctx context.Context, b *isink.BlockWrap, txn *generated.Transaction, intra int, inner int) {
 	jTx, err := utils.EncodeJson(*txn)
 	if err != nil {
 		return
@@ -308,7 +309,7 @@ func (sink *RmqSink) publishTxn(ctx context.Context, b *isink.BlockWrap, txn *ut
 		"txid":         *txn.Id,
 		"intra":        intra,
 		"inner":        inner,
-		"type":         txn.TxType,
+		"type":         string(txn.TxType),
 		"publishingId": int64(b.Block.BlockHeader.Round)*10000000 + int64(intra)*100 + int64(inner),
 	}
 
@@ -329,12 +330,13 @@ func (sink *RmqSink) publishTxn(ctx context.Context, b *isink.BlockWrap, txn *ut
 }
 
 func (sink *RmqSink) commitPaySet(ctx context.Context, b *isink.BlockWrap) {
-	if b.BlockResponse.Transactions == nil || len(*b.BlockResponse.Transactions) == 0 {
+	ps := b.BlockIdx.Transactions
+	if ps == nil || len(*ps) == 0 {
 		return
 	}
 
-	for i := range *b.BlockResponse.Transactions {
-		txn := &(*b.BlockResponse.Transactions)[i]
+	for i := range *ps {
+		txn := &(*ps)[i]
 		sink.publishTxn(ctx, b, txn, i, 0)
 		if txn.InnerTxns != nil {
 			for ii := range *txn.InnerTxns {
@@ -362,16 +364,10 @@ func (sink *RmqSink) commitBlock(ctx context.Context, b *isink.BlockWrap) (first
 func (sink *RmqSink) handleBlockRmq(ctx context.Context, b *isink.BlockWrap) error {
 	start := time.Now()
 
-	// Try to commit new block
-	// If successful than we should broadcast to pub/sub
-
-	publish := sink.commitBlock(ctx, b)
+	//publish := sink.commitBlock(ctx, b)
 	sink.commitPaySet(ctx, b)
 
-	p := "-"
-	if publish {
-		p = "+"
-	}
+	p := "+"
 
 	sink.Log.Infof("Block %d@%s processed(%s) in %s (%d txn). QLen:%d", uint64(b.Block.BlockHeader.Round), time.Unix(b.Block.TimeStamp, 0).UTC().Format(time.RFC3339), p, time.Since(start), len(b.Block.Payset), len(sink.Blocks))
 	return nil

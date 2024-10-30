@@ -22,13 +22,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	sdk "github.com/algorand/go-algorand-sdk/v2/types"
+
 	"github.com/algonode/algostreamer/internal/config"
 	"github.com/algonode/algostreamer/internal/isink"
 	"github.com/algonode/algostreamer/internal/utils"
 	"github.com/algorand/go-algorand-sdk/v2/client/v2/algod"
 	"github.com/algorand/go-algorand-sdk/v2/client/v2/common/models"
-	"github.com/algorand/go-algorand/protocol"
-	"github.com/algorand/go-algorand/rpcs"
+	"github.com/algorand/go-algorand-sdk/v2/encoding/msgpack"
 	"github.com/sirupsen/logrus"
 )
 
@@ -60,6 +61,10 @@ func AlgoStreamer(ctx context.Context, acfg *config.AlgoConfig, log *logrus.Logg
 		for {
 			select {
 			case bw := <-bchan:
+				if bw.Block == nil {
+					log.Error("Nil block.block!!")
+					continue
+				}
 				round := uint64(bw.Block.BlockHeader.Round)
 				if round > maxBlock || maxBlock == math.MaxUint64 {
 					bestbchan <- bw
@@ -81,18 +86,18 @@ func AlgoStreamer(ctx context.Context, acfg *config.AlgoConfig, log *logrus.Logg
 }
 
 func makeBlockWrap(rawBlock []byte, src string) (*isink.BlockWrap, error) {
-	block := new(rpcs.EncodedBlockCert)
-	err := protocol.Decode(rawBlock, block)
-	if err != nil {
+
+	var blk sdk.Block
+
+	tmpBlk := new(models.BlockResponse)
+	if err := msgpack.Decode(rawBlock, tmpBlk); err != nil {
 		return nil, fmt.Errorf("enqueueBlock() decode err: %w", err)
 	}
 
-	jBlock, err := utils.EncodeJson(block.Block)
-	if err != nil {
-		return nil, err
-	}
+	blk.BlockHeader = tmpBlk.Block.BlockHeader
+	blk.Payset = tmpBlk.Block.Payset
 
-	blockIdx, err := utils.GenerateBlock(&block.Block)
+	blockIdx, err := utils.GenerateBlock(&blk)
 	if err != nil {
 		return nil, err
 	}
@@ -103,10 +108,9 @@ func makeBlockWrap(rawBlock []byte, src string) (*isink.BlockWrap, error) {
 	}
 
 	return &isink.BlockWrap{
-		Block:         &block.Block,
-		BlockResponse: blockIdx,
-		BlockRaw:      rawBlock,
-		BlockJsonNode: string(jBlock),
+		Block:         &tmpBlk.Block,
+		BlockResponse: tmpBlk,
+		BlockIdx:      blockIdx,
 		BlockJsonIDX:  string(idxJBlock),
 		Ts:            time.Now(),
 		Src:           src,
