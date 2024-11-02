@@ -147,11 +147,6 @@ func Make(ctx context.Context, cfg *config.SinkDef, log *logrus.Logger) (isink.S
 		return nil, fmt.Errorf("error declaring AMQP91 headers exchange : %v", err)
 	}
 
-	if err := rs.tx.ExchangeDeclare(rs.cfg.TxMPStr, "headers", true, false, false, false, nil); err != nil {
-		return nil, fmt.Errorf("error declaring AMQP91 headers exchange : %v", err)
-	}
-
-	//bootNode(rs)
 	return rs, err
 
 }
@@ -253,10 +248,12 @@ func appendHeaders(tx *generated.Transaction, t amqp91.Table) {
 		addACC(tx.AssetTransferTransaction.CloseTo)
 		addASA(&tx.AssetTransferTransaction.AssetId)
 	case "acfg":
-		addACC(tx.AssetConfigTransaction.Params.Manager)
-		addACC(tx.AssetConfigTransaction.Params.Reserve)
-		addACC(tx.AssetConfigTransaction.Params.Clawback)
-		addACC(tx.AssetConfigTransaction.Params.Freeze)
+		if tx.AssetConfigTransaction.Params != nil {
+			addACC(tx.AssetConfigTransaction.Params.Manager)
+			addACC(tx.AssetConfigTransaction.Params.Reserve)
+			addACC(tx.AssetConfigTransaction.Params.Clawback)
+			addACC(tx.AssetConfigTransaction.Params.Freeze)
+		}
 		addASA(tx.AssetConfigTransaction.AssetId)
 	case "afrz":
 		addACC(&tx.AssetFreezeTransaction.Address)
@@ -298,7 +295,7 @@ func appendNotePrefix(tx *generated.Transaction, l int, t amqp91.Table) {
 	t[key] = nb64
 }
 
-func (sink *RmqSink) publishTxn(ctx context.Context, b *isink.BlockWrap, txn *generated.Transaction, intra int, inner int) {
+func (sink *RmqSink) publishTxn(ctx context.Context, b *isink.BlockWrap, txn *generated.Transaction, inner int) {
 	jTx, err := utils.EncodeJson(*txn)
 	if err != nil {
 		return
@@ -307,10 +304,10 @@ func (sink *RmqSink) publishTxn(ctx context.Context, b *isink.BlockWrap, txn *ge
 	hdrs := amqp91.Table{
 		"round":        int64(b.Block.BlockHeader.Round),
 		"txid":         *txn.Id,
-		"intra":        intra,
+		"intra":        int64(*txn.IntraRoundOffset),
 		"inner":        inner,
 		"type":         string(txn.TxType),
-		"publishingId": int64(b.Block.BlockHeader.Round)*10000000 + int64(intra)*100 + int64(inner),
+		"publishingId": int64(b.Block.BlockHeader.Round)*1000000 + int64(*txn.IntraRoundOffset),
 	}
 
 	appendHeaders(txn, hdrs)
@@ -337,12 +334,12 @@ func (sink *RmqSink) commitPaySet(ctx context.Context, b *isink.BlockWrap) {
 
 	for i := range *ps {
 		txn := &(*ps)[i]
-		sink.publishTxn(ctx, b, txn, i, 0)
+		sink.publishTxn(ctx, b, txn, 0)
 		if txn.InnerTxns != nil {
 			for ii := range *txn.InnerTxns {
 				itxn := &(*txn.InnerTxns)[ii]
 				itxn.Id = txn.Id
-				sink.publishTxn(ctx, b, itxn, i, ii+1)
+				sink.publishTxn(ctx, b, itxn, 1)
 			}
 		}
 	}
