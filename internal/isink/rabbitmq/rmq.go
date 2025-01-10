@@ -44,7 +44,6 @@ type RmqConfig struct {
 	ClientName string   `json:"client"`
 	BlockStr   string   `json:"block-str"`
 	TxStr      string   `json:"tx-hdr"`
-	TxMPStr    string   `json:"txmp-hdr"`
 	StatusStr  string   `json:"status-str"`
 }
 
