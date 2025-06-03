@@ -3,12 +3,12 @@ module github.com/algonode/algostreamer
 go 1.23.3
 
 require (
-	github.com/algorand/go-algorand-sdk/v2 v2.7.0
-	github.com/algorand/indexer/v3 v3.7.1
+	github.com/algorand/go-algorand-sdk/v2 v2.9.1
+	github.com/algorand/indexer/v3 v3.7.2
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/pkg/errors v0.9.1
 	github.com/rabbitmq/amqp091-go v1.10.0
-	github.com/rabbitmq/rabbitmq-stream-go-client v1.4.11
+	github.com/rabbitmq/rabbitmq-stream-go-client v1.5.6
 	github.com/sirupsen/logrus v1.9.3
 	github.com/tidwall/jsonc v0.3.2
 )
@@ -22,12 +22,12 @@ require (
 	github.com/getkin/kin-openapi v0.107.0 // indirect
 	github.com/go-openapi/jsonpointer v0.19.6 // indirect
 	github.com/go-openapi/swag v0.22.3 // indirect
-	github.com/golang/snappy v0.0.4 // indirect
+	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/invopop/yaml v0.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
-	github.com/klauspost/compress v1.17.9 // indirect
+	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/labstack/echo/v4 v4.12.0 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
@@ -38,9 +38,9 @@ require (
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
-	golang.org/x/net v0.29.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/crypto v0.36.0 // indirect
+	golang.org/x/net v0.38.0 // indirect
+	golang.org/x/sys v0.31.0 // indirect
+	golang.org/x/text v0.25.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

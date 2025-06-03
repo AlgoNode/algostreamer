@@ -60,6 +60,7 @@ func main() {
 			cf()
 		}()
 	}
+	tip := algod.GetLastBlock(ctx, cfg.Algod, slog)
 
 	sinks := make([]isink.Sink, 0)
 
@@ -74,15 +75,20 @@ func main() {
 			log.WithError(err).Error("Exiting")
 			return
 		}
+
 		sinks = append(sinks, sink)
 		if cfg.Algod.FRound < 0 {
-			if lr, err := sink.GetLastBlock(ctx); err == nil {
-				log.Infof("LastRound for sink '%s' is %d", name, lr)
-				cfg.Algod.FRound = int64(lr)
+			if tip > 0 {
+				cfg.Algod.FRound = tip
+			} else {
+				if lr, err := sink.GetLastBlock(ctx); err == nil {
+					log.Infof("!! LastRound for sink '%s' is %d", name, lr)
+					cfg.Algod.FRound = int64(lr)
+				}
 			}
 		} else {
 			if lr, err := sink.GetLastBlock(ctx); err == nil {
-				log.Infof("LastRound for sink '%s' is %d", name, lr)
+				log.Infof("LastRound for sink '%s' is %d. Source last is %d", name, lr, cfg.Algod.FRound)
 				if int64(lr) > cfg.Algod.FRound {
 					cfg.Algod.FRound = int64(lr)
 				}

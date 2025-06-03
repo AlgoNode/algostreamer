@@ -38,6 +38,21 @@ import (
 // reads are safe as the var is 64bit aligned
 var globalMaxBlock uint64 = 0
 
+func GetLastBlock(ctx context.Context, acfg *config.AlgoConfig, log *logrus.Logger) int64 {
+	cfg := acfg.ANodes[0]
+	algodClient, err := algod.MakeClient(cfg.Address, cfg.Token)
+	if err != nil {
+		log.WithError(err).Errorf("failed to make algod client: %s", cfg.Id)
+		return -1
+	}
+	log.Infof("new algod client: %s", cfg.Address)
+	ns, err := algodClient.Status().Do(ctx)
+	if err != nil {
+		return -1
+	}
+	return int64(ns.LastRound) - 1
+}
+
 func AlgoStreamer(ctx context.Context, acfg *config.AlgoConfig, log *logrus.Logger) (chan *isink.BlockWrap, chan *isink.Status, error) {
 	qDepth := acfg.Queue
 	if qDepth < 1 {
