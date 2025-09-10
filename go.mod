@@ -3,7 +3,7 @@ module github.com/algonode/algostreamer
 go 1.23.3
 
 require (
-	github.com/algorand/go-algorand-sdk/v2 v2.9.1
+	github.com/algorand/go-algorand-sdk/v2 v2.11.0
 	github.com/algorand/indexer/v3 v3.7.2
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/pkg/errors v0.9.1
