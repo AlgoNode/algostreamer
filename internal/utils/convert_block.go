@@ -75,11 +75,14 @@ func GenerateBlock(block *sdk.Block) (*generated.Block, error) {
 
 	ret := generated.Block{
 		Bonus:                  uint64PtrOrNil(uint64(blockHeader.Bonus)),
+		CongestionTax:          uint64PtrOrNil(uint64(blockHeader.CongestionTax)),
 		FeesCollected:          uint64PtrOrNil(uint64(blockHeader.FeesCollected)),
 		GenesisHash:            blockHeader.GenesisHash[:],
 		GenesisId:              blockHeader.GenesisID,
+		Load:                   uint64PtrOrNil(uint64(blockHeader.Load)),
 		ParticipationUpdates:   partUpdates,
 		PreviousBlockHash:      blockHeader.Branch[:],
+		PreviousBlockHash512:   byteSliceOmitZeroPtr(blockHeader.Branch512[:]),
 		Proposer:               addrPtr(block.BlockHeader.Proposer),
 		ProposerPayout:         uint64PtrOrNil(uint64(blockHeader.ProposerPayout)),
 		Rewards:                &rewards,
@@ -90,6 +93,7 @@ func GenerateBlock(block *sdk.Block) (*generated.Block, error) {
 		Transactions:           nil,
 		TransactionsRoot:       blockHeader.TxnCommitments.NativeSha512_256Commitment[:],
 		TransactionsRootSha256: blockHeader.TxnCommitments.Sha256Commitment[:],
+		TransactionsRootSha512: byteSliceOmitZeroPtr(blockHeader.TxnCommitments.Sha512Commitment[:]),
 		TxnCounter:             uint64Ptr(blockHeader.TxnCounter),
 		UpgradeState:           &upgradeState,
 		UpgradeVote:            &upgradeVote,
@@ -132,6 +136,7 @@ func genTransactions(block *sdk.Block) ([]generated.Transaction, error) {
 			Logicsig: lsigToTransactionLsig(stxnad.Lsig),
 			Multisig: msigToTransactionMsig(stxnad.Msig),
 			Sig:      sigToTransactionSig(stxnad.Sig),
+			Pqsig:    pqsigToTransactionPQsig(stxnad.PQsig),
 		}
 
 		tx, nextintra, err := signedTxnWithAdToTransaction(&stxnad, intra, extra)

@@ -29,7 +29,7 @@ func SinkByName(ctx context.Context, name string, cfg *config.SinkDef, log *log.
 		return val.Build(ctx, cfg, log)
 	}
 	for i, n := range indexerFactories {
-		fmt.Printf("Factory %d = '%s'\n", i, n)
+		fmt.Printf("Factory %s = '%v'\n", i, n)
 	}
 	return nil, fmt.Errorf("no Sink factory for %s", name)
 }

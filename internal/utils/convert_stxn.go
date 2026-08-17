@@ -70,6 +70,7 @@ func signedTxnWithAdToTransaction(stxn *sdk.SignedTxnWithAD, intra uint, extra r
 	var assetTransfer *generated.TransactionAssetTransfer
 	var application *generated.TransactionApplication
 	var stateProof *generated.TransactionStateProof
+	var heartbeat *generated.TransactionHeartbeat
 
 	switch stxn.Txn.Type {
 	case sdk.PaymentTx:
@@ -155,11 +156,100 @@ func signedTxnWithAdToTransaction(stxn *sdk.SignedTxnWithAD, intra uint, extra r
 			assets = append(assets, uint64(v))
 		}
 
+		boxRefs := make([]generated.BoxReference, 0, len(stxn.Txn.BoxReferences))
+		for _, v := range stxn.Txn.BoxReferences {
+			var appID uint64
+			if v.ForeignAppIdx == 0 {
+				appID = 0
+			} else if int(v.ForeignAppIdx-1) < len(stxn.Txn.ForeignApps) {
+				// Indexes are 1-based, so we subtract 1
+				appID = uint64(stxn.Txn.ForeignApps[v.ForeignAppIdx-1])
+			} else {
+				continue
+			}
+			boxRefs = append(boxRefs, generated.BoxReference{
+				App:  appID,
+				Name: v.Name,
+			})
+		}
+
+		access := make([]generated.ResourceRef, 0, len(stxn.Txn.Access))
+		for _, v := range stxn.Txn.Access {
+			resourceRef := generated.ResourceRef{}
+
+			// Only should be setting a single field on resourceRef
+			if v.Address != (sdk.Address{}) {
+				resourceRef.Address = strPtr(v.Address.String())
+			} else if v.App != 0 {
+				resourceRef.ApplicationId = uint64Ptr(uint64(v.App))
+			} else if v.Asset != 0 {
+				resourceRef.AssetId = uint64Ptr(uint64(v.Asset))
+			} else if v.Holding.Asset != 0 {
+				var address sdk.Address
+				if v.Holding.Address == 0 {
+					// indicates the sender, resolved below
+					address = stxn.Txn.Sender
+				} else if int(v.Holding.Address-1) < len(stxn.Txn.Access) {
+					address = stxn.Txn.Access[v.Holding.Address-1].Address
+				}
+
+				var asset sdk.AssetIndex
+				// Asset should always be non-zero, but sanity check
+				if int(v.Holding.Asset-1) < len(stxn.Txn.Access) {
+					asset = stxn.Txn.Access[v.Holding.Asset-1].Asset
+				}
+
+				resourceRef.Holding = &generated.HoldingRef{
+					Address: address.String(),
+					Asset:   uint64(asset),
+				}
+			} else if v.Locals.Address != 0 || v.Locals.App != 0 {
+				var address sdk.Address
+				if v.Locals.Address == 0 {
+					// indicates the sender, resolved below
+					address = stxn.Txn.Sender
+				} else if int(v.Locals.Address-1) < len(stxn.Txn.Access) {
+					address = stxn.Txn.Access[v.Locals.Address-1].Address
+				}
+
+				var app sdk.AppIndex
+				if v.Locals.App == 0 {
+					app = 0
+				} else if int(v.Locals.App-1) < len(stxn.Txn.Access) {
+					app = stxn.Txn.Access[v.Locals.App-1].App
+				}
+
+				resourceRef.Local = &generated.LocalsRef{
+					Address: address.String(),
+					App:     uint64(app),
+				}
+			} else {
+				// If all else empty, default to a boxref, because a boxref is the only ResourceRef that should ever be empty
+				var appID uint64
+				if v.Box.ForeignAppIdx == 0 {
+					appID = 0
+				} else if int(v.Box.ForeignAppIdx-1) < len(stxn.Txn.Access) {
+					// Indexes are 1-based, so we subtract 1
+					appID = uint64(stxn.Txn.Access[v.Box.ForeignAppIdx-1].App)
+				}
+				boxRef := generated.BoxReference{
+					App:  appID,
+					Name: v.Box.Name,
+				}
+
+				resourceRef.Box = &boxRef
+			}
+
+			access = append(access, resourceRef)
+		}
+
 		a := generated.TransactionApplication{
+			Access:            &access,
 			Accounts:          &accts,
 			ApplicationArgs:   &args,
 			ApplicationId:     uint64(stxn.Txn.ApplicationID),
 			ApprovalProgram:   byteSliceOmitZeroPtr(stxn.Txn.ApprovalProgram),
+			BoxReferences:     &boxRefs,
 			ClearStateProgram: byteSliceOmitZeroPtr(stxn.Txn.ClearStateProgram),
 			ForeignApps:       &apps,
 			ForeignAssets:     &assets,
@@ -173,6 +263,7 @@ func signedTxnWithAdToTransaction(stxn *sdk.SignedTxnWithAD, intra uint, extra r
 			},
 			OnCompletion:      onCompletionToTransactionOnCompletion(stxn.Txn.OnCompletion),
 			ExtraProgramPages: uint64PtrOrNil(uint64(stxn.Txn.ExtraProgramPages)),
+			RejectVersion:     uint64PtrOrNil(stxn.Txn.RejectVersion),
 		}
 
 		application = &a
@@ -273,6 +364,28 @@ func signedTxnWithAdToTransaction(stxn *sdk.SignedTxnWithAD, intra uint, extra r
 			StateProofType: uint64Ptr(uint64(stxn.Txn.StateProofType)),
 		}
 		stateProof = &proofTxn
+	case sdk.HeartbeatTx:
+		// HeartbeatTxnFields is embedded as a pointer, so guard against a
+		// malformed txn rather than panicking mid-stream.
+		hb := stxn.Txn.HeartbeatTxnFields
+		if hb == nil {
+			break
+		}
+		hbTxn := generated.TransactionHeartbeat{
+			HbAddress:           hb.HbAddress.String(),
+			HbChallengeDiscount: boolPtrOrNil(hb.HbChallengeDiscount),
+			HbKeyDilution:       hb.HbKeyDilution,
+			HbProof: generated.HbProofFields{
+				HbPk:     byteSliceOmitZeroPtr(hb.HbProof.PK[:]),
+				HbPk1sig: byteSliceOmitZeroPtr(hb.HbProof.PK1Sig[:]),
+				HbPk2:    byteSliceOmitZeroPtr(hb.HbProof.PK2[:]),
+				HbPk2sig: byteSliceOmitZeroPtr(hb.HbProof.PK2Sig[:]),
+				HbSig:    byteSliceOmitZeroPtr(hb.HbProof.Sig[:]),
+			},
+			HbSeed:   hb.HbSeed[:],
+			HbVoteId: hb.HbVoteID[:],
+		}
+		heartbeat = &hbTxn
 	}
 	// var localStateDelta *[]AccountStateDelta
 	// type tuple struct {
@@ -354,6 +467,7 @@ func signedTxnWithAdToTransaction(stxn *sdk.SignedTxnWithAD, intra uint, extra r
 		PaymentTransaction:       payment,
 		KeyregTransaction:        keyreg,
 		StateProofTransaction:    stateProof,
+		HeartbeatTransaction:     heartbeat,
 		ClosingAmount:            uint64Ptr(uint64(stxn.ClosingAmount)),
 		ConfirmedRound:           uint64Ptr(extra.Round),
 		IntraRoundOffset:         uint64Ptr(uint64(extra.Intra)),
@@ -465,7 +579,10 @@ func msigToTransactionMsig(msig sdk.MultisigSig) *generated.TransactionSignature
 }
 
 func lsigToTransactionLsig(lsig sdk.LogicSig) *generated.TransactionSignatureLogicsig {
-	if lsig.Blank() {
+	// LogicSig.Blank() does not consider PQsig in the current version (it will
+	// eventually, of course), but for now we need the extra explicit
+	// check. Remove it when sdk updates.
+	if lsig.Blank() && lsig.PQsig.Blank() {
 		return nil
 	}
 
@@ -475,11 +592,27 @@ func lsigToTransactionLsig(lsig sdk.LogicSig) *generated.TransactionSignatureLog
 	}
 
 	ret := generated.TransactionSignatureLogicsig{
-		Args:              &args,
-		Logic:             lsig.Logic,
-		MultisigSignature: msigToTransactionMsig(lsig.Msig),
-		Signature:         sigToTransactionSig(lsig.Sig),
+		Args:                   &args,
+		Logic:                  lsig.Logic,
+		LogicMultisigSignature: msigToTransactionMsig(lsig.LMsig),
+		MultisigSignature:      msigToTransactionMsig(lsig.Msig),
+		Pqsig:                  pqsigToTransactionPQsig(lsig.PQsig),
+		Signature:              sigToTransactionSig(lsig.Sig),
 	}
 
+	return &ret
+}
+
+func pqsigToTransactionPQsig(pqsig sdk.PQSig) *generated.TransactionSignaturePQsig {
+	if pqsig.Blank() {
+		return nil
+	}
+
+	ret := generated.TransactionSignaturePQsig{
+		Scheme:    string(pqsig.Scheme[:]),
+		Salt:      uint64PtrOrNil(uint64(pqsig.Salt)),
+		PublicKey: pqsig.PublicKey,
+		Signature: pqsig.Signature,
+	}
 	return &ret
 }

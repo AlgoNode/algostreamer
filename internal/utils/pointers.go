@@ -101,6 +101,13 @@ func boolPtr(x bool) *bool {
 	return &x
 }
 
+func boolPtrOrNil(x bool) *bool {
+	if !x {
+		return nil
+	}
+	return &x
+}
+
 func strArrayPtr(x []string) *[]string {
 	if len(x) == 0 {
 		return nil

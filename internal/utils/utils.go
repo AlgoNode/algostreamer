@@ -43,7 +43,7 @@ func Backoff(ctx context.Context, fn eternalFn, timeout time.Duration, wait time
 			return nil
 		}
 		cancel()
-		fmt.Fprintf(os.Stderr, err.Error())
+		fmt.Fprint(os.Stderr, err.Error())
 
 		//keep an eye on cancellation while backing off
 		if wait > 0 {
