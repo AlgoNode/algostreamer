@@ -3,7 +3,7 @@ module github.com/algonode/algostreamer
 go 1.25.0
 
 require (
-	github.com/algorand/go-algorand-sdk/v2 v2.12.0
+	github.com/algorand/go-algorand-sdk/v2 v2.14.0
 	github.com/algorand/indexer/v3 v3.10.0
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/pkg/errors v0.9.1
@@ -14,6 +14,8 @@ require (
 )
 
 require (
+	filippo.io/edwards25519 v1.2.0 // indirect
+	github.com/algorand/falcon v0.1.0 // indirect
 	github.com/algorand/go-codec/codec v1.1.10 // indirect
 	github.com/algorand/oapi-codegen v1.12.0-algorand.0 // indirect
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect

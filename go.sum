@@ -1,6 +1,10 @@
+filippo.io/edwards25519 v1.2.0 h1:crnVqOiS4jqYleHd9vaKZ+HKtHfllngJIiOpNpoJsjo=
+filippo.io/edwards25519 v1.2.0/go.mod h1:xzAOLCNug/yB62zG1bQ8uziwrIqIuxhctzJT18Q77mc=
 github.com/RaveNoX/go-jsoncommentstrip v1.0.0/go.mod h1:78ihd09MekBnJnxpICcwzCMzGrKSKYe4AqU6PDYYpjk=
-github.com/algorand/go-algorand-sdk/v2 v2.12.0 h1:xGj5KUdNdxidNHH1dS0mFwuFR5mshsenD3iY8Y51e6U=
-github.com/algorand/go-algorand-sdk/v2 v2.12.0/go.mod h1:+AY/uVX/X60O9Ok9HtPWA6DqFRuPl9QWm4scQDmOcFc=
+github.com/algorand/falcon v0.1.0 h1:xl832kfZ7hHG6B4p90DQynjfKFGbIUgUOnsRiMZXfAo=
+github.com/algorand/falcon v0.1.0/go.mod h1:OkQyHlGvS0kLNcIWbC21/uQcnbfwSOQm+wiqWwBG9pQ=
+github.com/algorand/go-algorand-sdk/v2 v2.14.0 h1:V/wCKLoH8Jvd6CcfA2culf8yVY3xGcGvIpynKaLBrxc=
+github.com/algorand/go-algorand-sdk/v2 v2.14.0/go.mod h1:lAGocFyYgbUgjelLomkg7xahC9L5NFhu5keYe8z9chg=
 github.com/algorand/go-codec/codec v1.1.10 h1:zmWYU1cp64jQVTOG8Tw8wa+k0VfwgXIPbnDfiVa+5QA=
 github.com/algorand/go-codec/codec v1.1.10/go.mod h1:YkEx5nmr/zuCeaDYOIhlDg92Lxju8tj2d2NrYqP7g7k=
 github.com/algorand/indexer/v3 v3.10.0 h1:BB+edfiIEH5KDpflLsX9GrJ40orULi8rOBR78eD0mU4=
