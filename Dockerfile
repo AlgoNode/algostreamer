@@ -1,6 +1,6 @@
 FROM golang:1.25 AS build-env
 
-RUN apt update && apt install libsqlite3-dev 
+RUN apt-get update && apt-get install -y --no-install-recommends libsqlite3-dev
 WORKDIR /go/src/app
 COPY . /go/src/app
 
